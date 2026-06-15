@@ -1,0 +1,536 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { onAuthStateChanged } from "firebase/auth";
+import { auth } from "@/lib/firebase";
+import { attendanceRepository, MemberInfo, AccountRequest } from "@/lib/attendanceRepository";
+
+import TabSummary from "./_components/TabSummary";
+import TabRecords from "./_components/TabRecords";
+import TabCsv from "./_components/TabCsv"; 
+import TabMembers from "./_components/TabMembers";
+import TabOrgChart from "./_components/TabOrgChart"; // ✨ インポートを追加
+import EditModal from "./_components/EditModal";
+
+interface AdminAttendanceRecord {
+  id: string;
+  userName: string;
+  email: string;
+  workDate: string;
+  startTime: string;
+  endTime: string;
+  breakMinutes: number;
+  workHours: number;
+  submitted: boolean;
+}
+
+function splitCSVLine(line: string): string[] {
+  const result: string[] = [];
+  let current = "";
+  let inQuotes = false;
+  
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (char === '"') {
+      inQuotes = !inQuotes;
+    } else if (char === ',' && !inQuotes) {
+      result.push(current.trim().replace(/^"|"$/g, "").replace(/""/g, '"'));
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+  result.push(current.trim().replace(/^"|"$/g, "").replace(/""/g, '"'));
+  return result;
+}
+
+export default function AdminPage() {
+  const router = useRouter();
+  const [isLoading, setIsLoading] = useState(true);
+  const [adminEmail, setAdminEmail] = useState<string>("");
+  
+  // ログイン中の管理者自身のデータ
+  const [userRole, setUserRole] = useState<"admin" | "owner">("admin");
+  const [myDepartment, setMyDepartment] = useState<string>("");
+  
+  // 👑 【型拡張】組織図タブ「"org"」をメニューの選択肢に新設追加しました
+  const [activeTab, setActiveTab] = useState<"summary" | "records" | "members" | "csv" | "org">("records");
+
+  const [attendanceRecords, setAttendanceRecords] = useState<AdminAttendanceRecord[]>([]);
+  const [members, setMembers] = useState<MemberInfo[]>([]);
+  
+  const [accountRequests, setAccountRequests] = useState<AccountRequest[]>([]);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+
+  const [selectedMonth, setSelectedMonth] = useState<string>("2026-06");
+  const [filterEmail, setFilterEmail] = useState<string>("all");
+
+  const [statusFilter, setStatusFilter] = useState<"all" | "submitted" | "unsubmitted">("all");
+  const [viewMode, setViewMode] = useState<"user" | "department">("user");
+  const [filterDepartment, setFilterDepartment] = useState<string>("all");
+
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingRecord, setEditingRecord] = useState<AdminAttendanceRecord | null>(null);
+  const [editDate, setEditDate] = useState("");
+  const [editStart, setEditStart] = useState("");
+  const [editEnd, setEditEnd] = useState("");
+  const [editBreak, setEditBreak] = useState(0);
+
+  const [editingDeptEmail, setEditingDeptEmail] = useState<string | null>(null);
+  const [inputDeptText, setInputDeptText] = useState("");
+
+  const [startDate, setStartDate] = useState<string>("");
+  const [endDate, setEndDate] = useState<string>("");
+
+  const loadAllData = async () => {
+    try {
+      const [allRecords, allMembers, allRequests] = await Promise.all([
+        attendanceRepository.getAllRecordsForAdmin(),
+        attendanceRepository.getAllMembers(),
+        attendanceRepository.getAccountRequests()
+      ]);
+      setAttendanceRecords(allRecords);
+      setMembers(allMembers);
+      setAccountRequests(allRequests);
+    } catch (error) {
+      console.error("データの読み込みに失敗しました:", error);
+    }
+  };
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        const email = user.email || "";
+        setAdminEmail(email);
+
+        if (email === "nishio@aidma-hd.jp") {
+          setUserRole("owner");
+          setActiveTab("summary");
+        } else {
+          const meta = await attendanceRepository.getMemberByEmail(email);
+          if (meta && meta.isOwnerProxy) {
+            setUserRole("owner");
+            setActiveTab("summary");
+          } else if (meta && meta.role === "admin") {
+            setUserRole("admin");
+            setMyDepartment(meta.department || "");
+            setActiveTab("records");
+          } else {
+            router.push("/");
+            return;
+          }
+        }
+
+        await loadAllData();
+        setIsLoading(false);
+      } else {
+        router.push("/login");
+      }
+    });
+    return () => unsubscribe();
+  }, [router]);
+
+  const getMemberMeta = (email: string) => {
+    const matched = members.find(m => m.email === email || m.loginEmail === email);
+    return {
+      name: matched ? matched.name : email.split("@")[0],
+      managementNumber: matched ? matched.managementNumber : "---",
+      hourlyRate: matched ? matched.hourlyRate : 0,
+      department: matched ? matched.department : "未設定"
+    };
+  };
+
+  // システム内のマスタデータから登録済みの全チーム名を自動重複なく抽出
+  const uniqueDepartments = Array.from(
+    new Set([
+      ...members.map(m => m.department).filter(Boolean),
+      ...attendanceRecords.map(r => getMemberMeta(r.email).department).filter(Boolean)
+    ])
+  );
+
+  // 子コンポーネントで確定された「所属チーム名」を安全にFirestoreに保存
+  const handleSaveDepartment = async (email: string, selectedDept: string) => {
+    try {
+      setStatusMessage("所属チーム情報を更新中...");
+      const targetMember = members.find(m => m.email === email);
+      const currentLoginEmail = targetMember?.loginEmail || "";
+
+      await attendanceRepository.updateMemberFields(email, selectedDept, currentLoginEmail);
+      
+      setEditingDeptEmail(null);
+      setStatusMessage("所属チームを正常に更新しました！");
+      setTimeout(() => setStatusMessage(null), 3000);
+      await loadAllData();
+    } catch (error) {
+      alert("チーム名の更新に失敗しました。");
+    }
+  };
+
+  const handleExportRewardCSV = () => {
+    if (userRole !== "owner") return;
+
+    const [year, month] = selectedMonth.split("-").map(Number);
+    const startDateStr = `${year}/${String(month).padStart(2, '0')}/01`;
+    const lastDay = new Date(year, month, 0).getDate();
+    const endDateStr = `${year}/${String(month).padStart(2, '0')}/${String(lastDay).padStart(2, '0')}`;
+
+    const monthFiltered = attendanceRecords.filter(r => r.workDate.startsWith(selectedMonth));
+    const summaryMap: { [email: string]: { hours: number; days: Set<string> } } = {};
+    
+    monthFiltered.forEach(r => {
+      if (!summaryMap[r.email]) summaryMap[r.email] = { hours: 0, days: new Set() };
+      summaryMap[r.email].hours += r.workHours || 0;
+      summaryMap[r.email].days.add(r.workDate);
+    });
+
+    const line1 = ["報酬"];
+    const line2 = ["開始", startDateStr, "終了", endDateStr];
+    const headers = ["No", "所属", "区分", "ID", "管理番号", "氏名", "報酬額（税抜）", "出勤日数", "時給（税抜）", "勤務時間", "時給制（税抜）", "単価制（税抜）", "対応案件数", "案件報酬（税抜）", "インセンティブ（税抜）", "備考"];
+
+    let noCounter = 1;
+    const rows = Object.keys(summaryMap).map(email => {
+      const meta = getMemberMeta(email);
+      const data = summaryMap[email];
+      const roundedHours = Math.round(data.hours * 100) / 100;
+      const totalReward = Math.round(roundedHours * meta.hourlyRate);
+      
+      return [noCounter++, `"RM"`, `"パートナー"`, `""`, `"${meta.managementNumber}"`, `"${meta.name}"`, totalReward, data.days.size, meta.hourlyRate, roundedHours, totalReward, 0, 0, 0, 0, `"${meta.department}"`].join(",");
+    });
+
+    const csvContent = "\uFEFF" + [line1.join(","), line2.join(","), headers.join(","), ...rows].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `報酬計算書_${selectedMonth}.csv`;
+    link.click();
+  };
+
+  const handleOpenEditModal = (record: AdminAttendanceRecord) => {
+    setEditingRecord(record);
+    setEditDate(record.workDate);
+    setEditStart(record.startTime);
+    setEditEnd(record.endTime === "---" ? "" : record.endTime);
+    setEditBreak(record.breakMinutes);
+    setShowEditModal(true);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingRecord) return;
+    try {
+      await attendanceRepository.updateRecordByAdmin(editingRecord.id, { workDate: editDate, startTime: editStart, endTime: editEnd, breakMinutes: editBreak });
+      setShowEditModal(false);
+      setStatusMessage("打刻データを修正・再計算しました。");
+      setTimeout(() => setStatusMessage(null), 3000);
+      await loadAllData();
+    } catch (error) {
+      alert("修正に失敗しました。");
+    }
+  };
+
+  const handleDeleteRecord = async (id: string) => {
+    try {
+      await attendanceRepository.deleteRecord(id);
+      setStatusMessage("打刻データを削除しました。");
+      setTimeout(() => setStatusMessage(null), 3000);
+      await loadAllData();
+    } catch (error) {
+      alert("削除に失敗しました。");
+    }
+  };
+
+  const handleCSVUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (userRole !== "owner") return;
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const text = event.target?.result as string;
+      if (!text) return;
+      try {
+        const lines = text.split(/\r?\n/);
+        let firstLine = lines[0] || "";
+        
+        const testHeaders = splitCSVLine(firstLine);
+        if (!testHeaders.some(h => h.includes("管理番号")) && !testHeaders.some(h => h.includes("時給"))) {
+          const sjisReader = new FileReader();
+          sjisReader.onload = (ev) => processCSVLines(ev.target?.result as string);
+          sjisReader.readAsText(file, "Shift_JIS");
+        } else {
+          processCSVLines(text);
+        }
+      } catch (error) {
+        alert("インポート中にエラーが発生しました。");
+      }
+    };
+    reader.readAsText(file, "UTF-8");
+  };
+
+  const processCSVLines = async (text: string) => {
+    const lines = text.split(/\r?\n/);
+    const headers = splitCSVLine(lines[0] || "");
+    
+    const idxId = headers.findIndex(h => h === "ID");
+    const idxNo = headers.findIndex(h => h === "管理番号");
+    const idxLastName = headers.findIndex(h => h === "苗字");
+    const idxLastNameKana = headers.findIndex(h => h === "苗字カナ");
+    const idxFirstName = headers.findIndex(h => h === "名前");
+    const idxFirstNameKana = headers.findIndex(h => h === "名前カナ");
+    const idxEmail = headers.findIndex(h => h === "メール");
+    const idxRate = headers.findIndex(h => h === "時給");
+    const idxMedia = headers.findIndex(h => h === "求人媒体");
+    const idxCreatedAt = headers.findIndex(h => h === "作成日時");
+
+    if (idxEmail === -1 || idxLastName === -1 || idxFirstName === -1) {
+      alert("CSVファイル内に必須列が見つかりません。項目名をご確認ください。");
+      return;
+    }
+
+    const parsedList: Omit<MemberInfo, "department" | "loginEmail" | "role" | "isOwnerProxy">[] = [];
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+      
+      const columns = splitCSVLine(line);
+      const maxIdx = Math.max(idxId, idxNo, idxLastName, idxLastNameKana, idxFirstName, idxFirstNameKana, idxEmail, idxRate, idxMedia, idxCreatedAt);
+      
+      if (columns.length > maxIdx) {
+        const email = columns[idxEmail];
+        if (!email || !email.includes("@")) continue;
+
+        parsedList.push({ 
+          id: columns[idxId] || "",
+          managementNumber: columns[idxNo] || "---", 
+          lastName: columns[idxLastName] || "",
+          lastNameKana: columns[idxLastNameKana] || "",
+          firstName: columns[idxFirstName] || "",
+          firstNameKana: columns[idxFirstNameKana] || "",
+          email: email, 
+          hourlyRate: Number(columns[idxRate]) || 0,
+          media: columns[idxMedia] || "",
+          createdAtStr: columns[idxCreatedAt] || "",
+          name: `${columns[idxLastName]} ${columns[idxFirstName]}`
+        });
+      }
+    }
+
+    setStatusMessage("指定データをFirestoreに同期中...");
+    const count = await attendanceRepository.saveImportedMembers(parsedList);
+    setStatusMessage(`アサインシステムCSVから全 ${count} 名を同期しました！`);
+    setTimeout(() => setStatusMessage(null), 4000);
+    await loadAllData();
+  };
+
+  const filteredMembers = members.filter(m => {
+    if (userRole === "owner") return true;
+    return m.department === myDepartment;
+  });
+
+  const filteredAttendanceRecords = attendanceRecords.filter(rec => {
+    if (userRole === "owner") return true;
+    const meta = getMemberMeta(rec.email);
+    return meta.department === myDepartment;
+  });
+
+  // ✨ 日付降順 ➔ 同じ日なら業務終了時間の遅い順（降順）の完璧なソート
+  const displayedRecords = filteredAttendanceRecords.filter(r => {
+    const matchesMonth = r.workDate.startsWith(selectedMonth);
+    if (!matchesMonth) return false;
+
+    const matchesEmail = filterEmail === "all" ? true : r.email === filterEmail;
+    if (!matchesEmail) return false;
+
+    if (startDate && r.workDate < startDate) return false;
+    if (endDate && r.workDate > endDate) return false;
+
+    return true;
+  }).sort((a, b) => {
+    if (b.workDate !== a.workDate) {
+      return b.workDate.localeCompare(a.workDate);
+    }
+    const timeA = a.endTime === "---" ? "29:99" : a.endTime;
+    const timeB = b.endTime === "---" ? "29:99" : b.endTime;
+    return timeB.localeCompare(timeA);
+  });
+
+  // admin権限ログイン時、所属チーム絞り込み選択肢を制御
+  const uniqueDepartmentsForSelect = uniqueDepartments.filter(dept => {
+    if (userRole === "owner") return true;
+    return dept === myDepartment;
+  });
+
+  if (isLoading) {
+    return <div className="min-h-screen bg-gray-50 flex items-center justify-center font-bold text-gray-400">管理者認証中...</div>;
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 text-gray-800 font-sans text-sm">
+      <header className="bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between shadow-sm">
+        <div className="flex items-center space-x-6">
+          <div className="flex items-center space-x-3">
+            <span onClick={() => router.push("/")} className="text-2xl font-bold text-gray-800 tracking-tight cursor-pointer hover:text-emerald-500 transition-colors">あ～るえむ</span>
+            <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${userRole === "owner" ? "bg-gray-800 text-white" : "bg-purple-600 text-white"}`}>
+              {userRole === "owner" ? "オーナーパネル" : `チーム管理者パネル (${myDepartment || "未設定"})`}
+            </span>
+          </div>
+
+          <div className="flex space-x-2 border-l border-gray-200 pl-6 text-sm font-bold">
+            {userRole === "owner" && (
+              <button onClick={() => setActiveTab("summary")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "summary" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
+                稼働実績
+              </button>
+            )}
+            <button onClick={() => setActiveTab("records")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "records" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
+              稼働記録
+            </button>
+            <button onClick={() => setActiveTab("members")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "members" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
+              所属チーム登録
+            </button>
+            {/* 👑 【完成】ヘッダーに「組織図（連絡網）」のメニュー切り替えボタンを設置 */}
+            <button onClick={() => setActiveTab("org")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "org" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
+              🗺️ 組織図（連絡網）
+            </button>
+            {userRole === "owner" && (
+              <button onClick={() => setActiveTab("csv")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "csv" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
+                CSVインポート
+              </button>
+            )}
+          </div>
+        </div>
+
+        <button onClick={() => router.push("/")} className="text-sm text-emerald-600 hover:text-emerald-700 font-medium transition-colors">
+          ← 自分の打刻画面に戻る
+        </button>
+      </header>
+
+      <main className="max-w-6xl mx-auto px-4 py-4 space-y-4">
+        {statusMessage && <div className="bg-emerald-50 text-emerald-800 border border-emerald-100 px-4 py-2.5 rounded-xl font-medium shadow-sm animate-fadeIn">{statusMessage}</div>}
+
+        {/* 👑 組織図タブの時は、対象月などの不要な勤怠用フィルターバーを非表示にする制御 */}
+        {(activeTab === "summary" || activeTab === "records") && (
+          <div className="bg-white p-3 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between">
+            <div className="flex items-center flex-wrap gap-y-2 gap-x-4">
+              <div className="flex items-center space-x-1.5">
+                <span className="font-bold text-gray-400 text-xs">対象月:</span>
+                <select value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} className="bg-gray-50 border border-gray-200 px-2.5 py-1 rounded-lg font-bold text-gray-700 focus:outline-none cursor-pointer text-xs h-8 shadow-sm">
+                  <option value="2026-06">2026年06月</option>
+                  <option value="2026-05">2026年05月</option>
+                </select>
+              </div>
+
+              {activeTab === "summary" && userRole === "owner" && (
+                <>
+                  <div className="bg-gray-100 p-0.5 rounded-xl inline-flex border border-gray-200 shadow-inner border-l ml-2">
+                    <button onClick={() => setViewMode("user")} className={`px-3 py-1 rounded-lg font-bold text-xs transition-all ${viewMode === "user" ? "bg-white text-gray-800 shadow-sm font-extrabold" : "text-gray-400 hover:text-gray-600"}`}>👤 user別</button>
+                    <button onClick={() => setViewMode("department")} className={`px-3 py-1 rounded-lg font-bold text-xs transition-all ${viewMode === "department" ? "bg-white text-gray-800 shadow-sm font-extrabold" : "text-gray-400 hover:text-gray-600"}`}>🏢 所属別</button>
+                  </div>
+
+                  {viewMode === "user" && (
+                    <div className="flex items-center flex-wrap gap-x-4 gap-y-2 border-l border-gray-200 pl-4 animate-fadeIn">
+                      <div className="flex items-center space-x-1.5">
+                        <span className="font-bold text-gray-400 text-[11px]">提出状態:</span>
+                        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as any)} className="bg-gray-50 border border-gray-200 px-2.5 py-1 rounded-lg font-bold text-gray-700 focus:outline-none cursor-pointer text-xs h-8 shadow-sm">
+                          <option value="all">すべて表示</option>
+                          <option value="submitted">☑️ 提出済みのみ</option>
+                          <option value="unsubmitted">⏳ 未提出のみ</option>
+                        </select>
+                      </div>
+
+                      <div className="flex items-center space-x-1.5">
+                        <span className="font-bold text-gray-400 text-[11px]">チーム絞り込み:</span>
+                        <select value={filterDepartment} onChange={(e) => setFilterDepartment(e.target.value)} className="bg-gray-50 border border-gray-200 px-2.5 py-1 rounded-lg font-bold text-gray-700 focus:outline-none cursor-pointer text-xs h-8 shadow-sm">
+                          <option value="all">すべてのチームを表示</option>
+                          {uniqueDepartmentsForSelect.map(dept => (
+                            <option key={dept} value={dept}>{dept}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {activeTab === "records" && (
+                <>
+                  <div className="flex items-center space-x-1.5">
+                    <span className="font-bold text-gray-400 text-xs">人フィルター:</span>
+                    <select value={filterEmail} onChange={(e) => setFilterEmail(e.target.value)} className="bg-gray-50 border border-gray-200 px-2 py-1 rounded-lg font-bold text-gray-700 focus:outline-none cursor-pointer text-xs h-8 shadow-sm">
+                      <option value="all">全員を表示</option>
+                      {filteredMembers.map(m => <option key={m.email} value={m.email}>{m.name} ({m.email})</option>)}
+                    </select>
+                  </div>
+
+                  <div className="flex items-center space-x-2 border-l border-gray-200 pl-4 animate-fadeIn text-xs font-bold">
+                    <span className="text-gray-400">日付指定:</span>
+                    <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="bg-gray-50 border border-gray-200 px-2 py-1 rounded-lg text-gray-700 focus:outline-none cursor-pointer h-8 shadow-sm font-semibold" />
+                    <span className="text-gray-400">〜</span>
+                    <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="bg-gray-50 border border-gray-200 px-2 py-1 rounded-lg text-gray-700 focus:outline-none cursor-pointer h-8 shadow-sm font-semibold" />
+                    {(startDate || endDate) && (
+                      <button onClick={() => { setStartDate(""); setEndDate(""); }} className="text-[11px] bg-gray-200 text-gray-600 hover:bg-gray-300 font-bold px-2 py-1 rounded-md transition-all ml-1">クリア</button>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
+        {activeTab === "summary" && userRole === "owner" && (
+          <TabSummary 
+            attendanceRecords={attendanceRecords} 
+            members={members} 
+            selectedMonth={selectedMonth} 
+            statusFilter={statusFilter}
+            viewMode={viewMode}
+            filterDepartment={filterDepartment}
+            getMemberMeta={getMemberMeta} 
+            handleExportRewardCSV={handleExportRewardCSV} 
+          />
+        )}
+        
+        {activeTab === "records" && (
+          <TabRecords 
+            displayedRecords={displayedRecords} 
+            getMemberMeta={getMemberMeta} 
+            handleOpenEditModal={handleOpenEditModal} 
+            handleDeleteRecord={handleDeleteRecord} 
+            members={filteredMembers}
+            loadAllData={loadAllData}
+            setStatusMessage={setStatusMessage}
+          />
+        )}
+        
+        {activeTab === "members" && (
+          <TabMembers 
+            members={filteredMembers} 
+            editingDeptEmail={editingDeptEmail} 
+            setEditingDeptEmail={setEditingDeptEmail} 
+            inputDeptText={inputDeptText} 
+            setInputDeptText={setInputDeptText} 
+            handleSaveDepartment={handleSaveDepartment}
+            accountRequests={userRole === "owner" ? accountRequests : []}
+            myRole={userRole}
+            uniqueDepartments={uniqueDepartments} 
+          />
+        )}
+
+        {/* 👑 【完成】仮のメッセージ枠を消去し、本物の組織図コンポーネントを綺麗にマウントしました */}
+        {activeTab === "org" && (
+          <TabOrgChart 
+            members={filteredMembers}
+            uniqueDepartments={uniqueDepartments}
+          />
+        )}
+
+        {activeTab === "csv" && userRole === "owner" && (
+          <TabCsv handleCSVUpload={handleCSVUpload} members={members} />
+        )}
+      </main>
+
+      {showEditModal && editingRecord && (
+        <EditModal editingRecord={editingRecord} editDate={editDate} setEditDate={setEditDate} editStart={editStart} setEditStart={setEditStart} editEnd={editEnd} setEditEnd={setEditEnd} editBreak={editBreak} setEditBreak={setEditBreak} setShowEditModal={setShowEditModal} handleSaveEdit={handleSaveEdit} getMemberMeta={getMemberMeta} />
+      )}
+    </div>
+  );
+}

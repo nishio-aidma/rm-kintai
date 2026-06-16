@@ -2,9 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { onAuthStateChanged } from "firebase/auth";
 import { collection, query, where, getDocs } from "firebase/firestore";
-import { auth, db } from "@/lib/firebase";
+import { db } from "@/lib/firebase";
 import { attendanceRepository } from "@/lib/attendanceRepository";
 
 interface AttendanceRecord {
@@ -23,8 +22,11 @@ export default function RecordsPage() {
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [filteredRecords, setFilteredRecords] = useState<AttendanceRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [userEmail, setUserEmail] = useState<string>("");
+  const [userEmail, setUserEmail] = useState<string>("読み込み中...");
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+
+  // 👑 Windowsの標準ポップアップ(confirm)を使用せず、テーブル内で美しく削除確認を行うための状態管理
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   const [selectedMonth, setSelectedMonth] = useState<string>(() => {
     const now = new Date();
@@ -64,16 +66,24 @@ export default function RecordsPage() {
     }
   };
 
+  // 👑 引き戻しを解消するため、トップ画面と同じ「合言葉のメモ帳」を読み込む仕組み
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        setUserEmail(user.email || "");
-        fetchRecords(user.email || "");
-      } else {
+    const sessionStr = localStorage.getItem("session");
+    
+    if (sessionStr) {
+      try {
+        const session = JSON.parse(sessionStr);
+        const email = session.email || "";
+        setUserEmail(email);
+        fetchRecords(email);
+      } catch (error) {
+        console.error("ログイン情報の読み込みに失敗しました:", error);
         router.push("/login");
       }
-    });
-    return () => unsubscribe();
+    } else {
+      // 合言葉がなければ未ログインとみなし、安全にログイン画面へ移動
+      router.push("/login");
+    }
   }, [selectedMonth, router]);
 
   useEffect(() => {
@@ -100,11 +110,11 @@ export default function RecordsPage() {
   };
 
   const handleDeleteRow = async (id: string) => {
-    if (!confirm("この打刻データを削除してもよろしいですか？")) return;
     try {
       setStatusMessage("データを削除中...");
       await attendanceRepository.deleteRecord(id);
       setStatusMessage("打刻データを削除しました。");
+      setDeleteConfirmId(null); // 確認状態をリセット
       setTimeout(() => setStatusMessage(null), 3000);
       await fetchRecords(userEmail);
     } catch (error) {
@@ -183,8 +193,7 @@ export default function RecordsPage() {
                     <th className="py-2 font-medium">業務終了</th>
                     <th className="py-2 font-medium">休憩時間</th>
                     <th className="py-2 font-medium">実働時間</th>
-                    <th className="py-2 font-medium text-center w-14">削除</th>
-                    {/* ✨ 「間違い確認」からスマートな「確認状況」に修正 */}
+                    <th className="py-2 font-medium text-center w-20">削除</th>
                     <th className="py-2 text-center w-36 pr-3 font-bold text-gray-500">確認状況</th>
                   </tr>
                 </thead>
@@ -199,23 +208,29 @@ export default function RecordsPage() {
                       <td className="py-2 tabular-nums text-gray-400">{record.endTime === "---" ? "---" : `${record.breakMinutes} 分`}</td>
                       <td className="py-2 tabular-nums font-semibold text-gray-700">{record.endTime === "---" ? "---" : `${record.workHours} 時間`}</td>
                       
+                      {/* 👑 開発方針徹底：Windowsのポップアップを使わず、テーブル内で美しく安全に確認するUI */}
                       <td className="py-2 text-center">
                         {record.verified ? (
                           <span className="text-gray-300 select-none cursor-not-allowed" title="確認済みのデータは削除できません">🔒</span>
+                        ) : deleteConfirmId === record.id ? (
+                          <div className="flex items-center justify-center space-x-1.5 bg-red-50 py-0.5 px-1.5 rounded-lg border border-red-100 animate-fadeIn">
+                            <button onClick={() => handleDeleteRow(record.id)} className="text-[10px] text-red-600 font-black hover:underline">はい</button>
+                            <span className="text-gray-300 text-[9px]">|</span>
+                            <button onClick={() => setDeleteConfirmId(null)} className="text-[10px] text-gray-400 font-bold hover:underline">中断</button>
+                          </div>
                         ) : (
                           <button 
-                            onClick={() => handleDeleteRow(record.id)}
+                            onClick={() => setDeleteConfirmId(record.id)}
                             className="text-gray-400 hover:text-red-500 p-1 rounded-md hover:bg-red-50 transition-all"
                             title="このレコードを削除する"
                           >
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.2} stroke="currentColor" className="w-3.5 h-3.5 inline">
+                            <svg xmlns="http://www.w3.org/2000/xl" fill="none" viewBox="0 0 24 24" strokeWidth={2.2} stroke="currentColor" className="w-3.5 h-3.5 inline">
                               <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.34 6m-4.02 0l-.34-6M4.5 6.375a.5.5 0 01.5-.5h14a.5.5 0 01.5.5v1.5a.5.5 0 01-.5.5H5a.5.5 0 01-.5-.5v-1.5zM10.5 4.5a.5.5 0 01.5-.5h2a.5.5 0 01.5.5v1.375H10.5V4.5zm-5 4.125h13v11.25a2.25 2.25 0 01-2.25 2.25H7.75A2.25 2.25 0 015.5 19.875V8.625z" />
                             </svg>
                           </button>
                         )}
                       </td>
 
-                      {/* ✨ 「間違いありません」ボタンから「確認する」ボタンにブラッシュアップ */}
                       <td className="py-2 text-center pr-3">
                         {record.verified ? (
                           <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-0.5 rounded-xl font-extrabold shadow-sm inline-block select-none">
@@ -259,6 +274,7 @@ export default function RecordsPage() {
           </div>
 
           <div className="pt-1">
+            {/* 👑 修正：末尾に混入していたゴミ文字(pile_verified)を完全に消去して綺麗に閉じました */}
             {isAllVerified ? (
               <div className="bg-emerald-50 text-emerald-700 font-extrabold py-2.5 px-6 rounded-xl text-xs inline-block border border-emerald-100 shadow-sm">
                 ✓ 今月分のすべての業務セクションの確認が完了しています！

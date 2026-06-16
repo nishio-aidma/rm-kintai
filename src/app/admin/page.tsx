@@ -2,15 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { onAuthStateChanged } from "firebase/auth";
-import { auth } from "@/lib/firebase";
 import { attendanceRepository, MemberInfo, AccountRequest } from "@/lib/attendanceRepository";
 
 import TabSummary from "./_components/TabSummary";
 import TabRecords from "./_components/TabRecords";
 import TabCsv from "./_components/TabCsv"; 
 import TabMembers from "./_components/TabMembers";
-import TabOrgChart from "./_components/TabOrgChart"; // ✨ インポートを追加
+import TabOrgChart from "./_components/TabOrgChart"; 
 import EditModal from "./_components/EditModal";
 
 interface AdminAttendanceRecord {
@@ -54,7 +52,7 @@ export default function AdminPage() {
   const [userRole, setUserRole] = useState<"admin" | "owner">("admin");
   const [myDepartment, setMyDepartment] = useState<string>("");
   
-  // 👑 【型拡張】組織図タブ「"org"」をメニューの選択肢に新設追加しました
+  // 👑 組織図タブ「"org"」をメニューの選択肢に新設追加した仕様を100%保持
   const [activeTab, setActiveTab] = useState<"summary" | "records" | "members" | "csv" | "org">("records");
 
   const [attendanceRecords, setAttendanceRecords] = useState<AdminAttendanceRecord[]>([]);
@@ -98,37 +96,53 @@ export default function AdminPage() {
     }
   };
 
+  // 👑 修正：Firebaseの公式見張り番から、最新の「パソコンのメモ帳（合言葉）」を読み込む仕様に完全統合
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        const email = user.email || "";
-        setAdminEmail(email);
+    const checkAdminAuth = async () => {
+      const sessionStr = localStorage.getItem("session");
+      
+      if (sessionStr) {
+        try {
+          const session = JSON.parse(sessionStr);
+          const email = session.email || "";
+          setAdminEmail(email);
 
-        if (email === "nishio@aidma-hd.jp") {
-          setUserRole("owner");
-          setActiveTab("summary");
-        } else {
-          const meta = await attendanceRepository.getMemberByEmail(email);
-          if (meta && meta.isOwnerProxy) {
+          // 👑 【仕様100%保持】西尾さんは最上位のowner
+          if (email === "nishio@aidma-hd.jp") {
             setUserRole("owner");
             setActiveTab("summary");
-          } else if (meta && meta.role === "admin") {
-            setUserRole("admin");
-            setMyDepartment(meta.department || "");
-            setActiveTab("records");
           } else {
-            router.push("/");
-            return;
+            const meta = await attendanceRepository.getMemberByEmail(email);
+            // 👑 【仕様100%保持】もしowner代理(isOwnerProxy)に☑があれば最強のowner権限を付与
+            if (meta && meta.isOwnerProxy) {
+              setUserRole("owner");
+              setActiveTab("summary");
+            } else if (meta && meta.role === "admin") {
+              setUserRole("admin");
+              setMyDepartment(meta.department || "");
+              setActiveTab("records");
+            } else {
+              // 管理者権限のない一般ユーザーは安全にトップ画面へ戻す
+              router.push("/");
+              return;
+            }
           }
-        }
 
-        await loadAllData();
-        setIsLoading(false);
+          // 権限確認が取れたら、管理データをFirestoreから一括取得
+          await loadAllData();
+        } catch (error) {
+          console.error("管理者データの読み込みに失敗しました:", error);
+          router.push("/login");
+        } finally {
+          setIsLoading(false);
+        }
       } else {
+        // ログインの合言葉がなければ、ログイン画面へ移動
         router.push("/login");
       }
-    });
-    return () => unsubscribe();
+    };
+
+    checkAdminAuth();
   }, [router]);
 
   const getMemberMeta = (email: string) => {
@@ -141,7 +155,6 @@ export default function AdminPage() {
     };
   };
 
-  // システム内のマスタデータから登録済みの全チーム名を自動重複なく抽出
   const uniqueDepartments = Array.from(
     new Set([
       ...members.map(m => m.department).filter(Boolean),
@@ -149,7 +162,6 @@ export default function AdminPage() {
     ])
   );
 
-  // 子コンポーネントで確定された「所属チーム名」を安全にFirestoreに保存
   const handleSaveDepartment = async (email: string, selectedDept: string) => {
     try {
       setStatusMessage("所属チーム情報を更新中...");
@@ -163,7 +175,9 @@ export default function AdminPage() {
       setTimeout(() => setStatusMessage(null), 3000);
       await loadAllData();
     } catch (error) {
-      alert("チーム名の更新に失敗しました。");
+      // 👑 開発方針徹底：Windows標準の嫌な alert を画面内メッセージにアップグレード
+      setStatusMessage("⚠️ エラー：チーム名の更新に失敗しました。");
+      setTimeout(() => setStatusMessage(null), 4000);
     }
   };
 
@@ -225,7 +239,9 @@ export default function AdminPage() {
       setTimeout(() => setStatusMessage(null), 3000);
       await loadAllData();
     } catch (error) {
-      alert("修正に失敗しました。");
+      // 👑 開発方針徹底：Windows標準の嫌な alert を画面内メッセージに統合
+      setStatusMessage("⚠️ エラー：データの修正に失敗しました。");
+      setTimeout(() => setStatusMessage(null), 4000);
     }
   };
 
@@ -236,7 +252,9 @@ export default function AdminPage() {
       setTimeout(() => setStatusMessage(null), 3000);
       await loadAllData();
     } catch (error) {
-      alert("削除に失敗しました。");
+      // 👑 開発方針徹底：Windows標準の嫌な alert を画面内メッセージに統合
+      setStatusMessage("⚠️ エラー：データの削除に失敗しました。");
+      setTimeout(() => setStatusMessage(null), 4000);
     }
   };
 
@@ -253,7 +271,7 @@ export default function AdminPage() {
         let firstLine = lines[0] || "";
         
         const testHeaders = splitCSVLine(firstLine);
-        if (!testHeaders.some(h => h.includes("管理番号")) && !testHeaders.some(h => h.includes("時給")) && !testHeaders.some(h => h.includes("時給"))) {
+        if (!testHeaders.some(h => h.includes("管理番号")) && !testHeaders.some(h => h.includes("時給"))) {
           const sjisReader = new FileReader();
           sjisReader.onload = (ev) => processCSVLines(ev.target?.result as string);
           sjisReader.readAsText(file, "Shift_JIS");
@@ -261,7 +279,9 @@ export default function AdminPage() {
           processCSVLines(text);
         }
       } catch (error) {
-        alert("インポート中にエラーが発生しました。");
+        // 👑 開発方針徹底：Windows標準の嫌な alert を画面内メッセージに統合
+        setStatusMessage("⚠️ エラー：インポート中にエラーが発生しました。");
+        setTimeout(() => setStatusMessage(null), 4000);
       }
     };
     reader.readAsText(file, "UTF-8");
@@ -283,7 +303,9 @@ export default function AdminPage() {
     const idxCreatedAt = headers.findIndex(h => h === "作成日時");
 
     if (idxEmail === -1 || idxLastName === -1 || idxFirstName === -1) {
-      alert("CSVファイル内に必須列が見つかりません。項目名をご確認ください。");
+      // 👑 開発方針徹底：Windows標準の嫌な alert を画面内メッセージに統合
+      setStatusMessage("⚠️ エラー：CSVファイル内に必須列（メール・苗字・名前）が見つかりません。");
+      setTimeout(() => setStatusMessage(null), 5000);
       return;
     }
 
@@ -333,7 +355,6 @@ export default function AdminPage() {
     return meta.department === myDepartment;
   });
 
-  // ✨ 日付降順 ➔ 同じ日なら業務終了時間の遅い順（降順）の完璧なソート
   const displayedRecords = filteredAttendanceRecords.filter(r => {
     const matchesMonth = r.workDate.startsWith(selectedMonth);
     if (!matchesMonth) return false;
@@ -354,7 +375,6 @@ export default function AdminPage() {
     return timeB.localeCompare(timeA);
   });
 
-  // admin権限ログイン時、所属チーム絞り込み選択肢を制御
   const uniqueDepartmentsForSelect = uniqueDepartments.filter(dept => {
     if (userRole === "owner") return true;
     return dept === myDepartment;
@@ -387,7 +407,6 @@ export default function AdminPage() {
             <button onClick={() => setActiveTab("members")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "members" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
               所属チーム登録
             </button>
-            {/* 👑 【完成】ヘッダーに「組織図」のメニュー切り替えボタンを設置 */}
             <button onClick={() => setActiveTab("org")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "org" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
                組織図
             </button>
@@ -404,11 +423,9 @@ export default function AdminPage() {
         </button>
       </header>
 
-      {/* 👑 【全体最適化】組織図タブ「org」が選択されているときだけ、横幅制限を完全に解除（max-w-[100%]、px-6）する動的制御を実装 */}
       <main className={`${activeTab === "org" ? "max-w-[100%] px-6" : "max-w-6xl mx-auto px-4"} py-4 space-y-4`}>
         {statusMessage && <div className="bg-emerald-50 text-emerald-800 border border-emerald-100 px-4 py-2.5 rounded-xl font-medium shadow-sm animate-fadeIn">{statusMessage}</div>}
 
-        {/* 👑 組織図タブの時は、対象月などの不要な勤怠用フィルターバーを非表示にする制御 */}
         {(activeTab === "summary" || activeTab === "records") && (
           <div className="bg-white p-3 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between">
             <div className="flex items-center flex-wrap gap-y-2 gap-x-4">
@@ -516,7 +533,6 @@ export default function AdminPage() {
           />
         )}
 
-        {/* 👑 【完成】本物の組織図コンポーネントをマウント */}
         {activeTab === "org" && (
           <TabOrgChart 
             members={filteredMembers}

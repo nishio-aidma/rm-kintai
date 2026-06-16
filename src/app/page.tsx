@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { attendanceRepository } from "@/lib/attendanceRepository";
 
@@ -24,53 +23,68 @@ export default function DashboardPage() {
   
   const [currentStartTimeStr, setCurrentStartTimeStr] = useState<string>("");
 
+  // ⏱️ 1秒ごとに時計を動かすタイマー仕様（100%完全保持）
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
 
+  // 👑 修正：Firebase公式の見張り番から、ローカルストレージの「合言葉チェック」へ変更してループを破壊
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        const email = user.email || "";
-        setUserEmail(email);
-        setUserId(user.uid);
+    const checkLoginAndLoadData = async () => {
+      // パソコン内のメモ帳からログイン証明書（合言葉）を取得
+      const sessionStr = localStorage.getItem("session");
 
-        // 👑 【進化】西尾さんは最上位のowner
-        if (email === "nishio@aidma-hd.jp") {
-          setUserRole("owner");
-        } else {
-          const memberMeta = await attendanceRepository.getMemberByEmail(email);
-          // 👑 もしowner代理(isOwnerProxy)に☑が入っていれば、西尾さんと同じ最強の「owner」権限を付与する！
-          if (memberMeta && memberMeta.isOwnerProxy) {
+      if (sessionStr) {
+        try {
+          const session = JSON.parse(sessionStr);
+          const email = session.email || "";
+          setUserEmail(email);
+          setUserId(session.memberId || "");
+
+          // 👑 【仕様100%保持】西尾さんは最上位のowner
+          if (email === "nishio@aidma-hd.jp") {
             setUserRole("owner");
-          } else if (memberMeta && memberMeta.role === "admin") {
-            setUserRole("admin");
           } else {
-            setUserRole("user");
+            const memberMeta = await attendanceRepository.getMemberByEmail(email);
+            // 👑 【仕様100%保持】もしowner代理(isOwnerProxy)に☑があれば最強のowner権限を付与
+            if (memberMeta && memberMeta.isOwnerProxy) {
+              setUserRole("owner");
+            } else if (memberMeta && memberMeta.role === "admin") {
+              setUserRole("admin");
+            } else {
+              setUserRole("user");
+            }
           }
-        }
 
-        const now = new Date();
-        const todayStr = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, '0') + "-" + String(now.getDate()).padStart(2, '0');
-        const latest = await attendanceRepository.getTodayLatestRecord(email, todayStr);
-        if (latest) {
-          if (latest.endTime === "") {
-            setWorkState("working");
-            setCurrentStampId(latest.id);
-            setCurrentStartTimeStr(latest.startTime || "");
+          // 👑 【仕様100%保持】今日の最新の打刻履歴を自動で復元するロジック
+          const now = new Date();
+          const todayStr = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, '0') + "-" + String(now.getDate()).padStart(2, '0');
+          const latest = await attendanceRepository.getTodayLatestRecord(email, todayStr);
+          if (latest) {
+            if (latest.endTime === "") {
+              setWorkState("working");
+              setCurrentStampId(latest.id);
+              setCurrentStartTimeStr(latest.startTime || "");
+            } else {
+              setWorkState("not_started");
+            }
           } else {
             setWorkState("not_started");
           }
-        } else {
-          setWorkState("not_started");
+        } catch (error) {
+          console.error("ログイン情報の読み込みに失敗しました:", error);
+          router.push("/login");
+        } finally {
+          setIsLoading(false);
         }
-        setIsLoading(false);
       } else {
+        // メモ帳（合言葉）がなければ、未ログインと判断してログイン画面へ強制移動
         router.push("/login");
       }
-    });
-    return () => unsubscribe();
+    };
+
+    checkLoginAndLoadData();
   }, [router]);
 
   const formatTime = (date: Date) => date.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
@@ -113,7 +127,10 @@ export default function DashboardPage() {
         const totalWorkMinutes = (endH * 60 + endM) - (startH * 60 + startM);
 
         if (breakMinutesInput >= totalWorkMinutes && totalWorkMinutes > 0) {
-          alert(`⚠️ エラー：休憩時間（${breakMinutesInput}分）が、実際の稼働時間（${totalWorkMinutes}分）以上になっています。正しい休憩時間を選択してください。`);
+          // 👑 開発方針徹底：Windows標準の嫌な alert ポップアップを撤廃し、画面内の美しいエラー表示に統合
+          setStatusMessage(`⚠️ エラー：休憩時間（${breakMinutesInput}分）が実際の稼働時間（${totalWorkMinutes}分）以上になっています。正しい時間を選択してください。`);
+          setShowEndModal(false);
+          setTimeout(() => setStatusMessage(null), 6000);
           return;
         }
       }
@@ -160,7 +177,15 @@ export default function DashboardPage() {
           <button onClick={() => router.push("/records")} className="text-sm font-semibold text-emerald-500 hover:text-emerald-600 bg-emerald-50 hover:bg-emerald-100 px-4 py-2 rounded-xl transition-all whitespace-nowrap">
             自分の業務記録を見る
           </button>
-          <button onClick={async () => { await auth.signOut(); router.push("/login"); }} className="text-sm text-gray-400 hover:text-red-500 transition-colors font-medium whitespace-nowrap">
+          {/* 👑 修正：ログアウト時にローカルストレージの古い合言葉のメモ帳もしっかり破棄する仕様に最適化 */}
+          <button 
+            onClick={async () => { 
+              localStorage.removeItem("session"); 
+              await auth.signOut(); 
+              router.push("/login"); 
+            }} 
+            className="text-sm text-gray-400 hover:text-red-500 transition-colors font-medium whitespace-nowrap"
+          >
             ログアウト
           </button>
         </div>
@@ -185,7 +210,7 @@ export default function DashboardPage() {
           </div>
 
           {statusMessage && (
-            <div className="max-w-md mx-auto bg-emerald-50 text-emerald-800 border border-emerald-100 px-4 py-3 rounded-2xl text-sm font-medium">{statusMessage}</div>
+            <div className="max-w-md mx-auto bg-emerald-50 text-emerald-800 border border-emerald-100 px-4 py-3 rounded-2xl text-sm font-medium animate-fadeIn">{statusMessage}</div>
           )}
 
           <div className="flex justify-center space-x-4 max-w-md mx-auto">

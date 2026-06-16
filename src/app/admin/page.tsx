@@ -253,7 +253,7 @@ export default function AdminPage() {
         let firstLine = lines[0] || "";
         
         const testHeaders = splitCSVLine(firstLine);
-        if (!testHeaders.some(h => h.includes("管理番号")) && !testHeaders.some(h => h.includes("時給"))) {
+        if (!testHeaders.some(h => h.includes("管理番号")) && !testHeaders.some(h => h.includes("時給")) && !testHeaders.some(h => h.includes("時給"))) {
           const sjisReader = new FileReader();
           sjisReader.onload = (ev) => processCSVLines(ev.target?.result as string);
           sjisReader.readAsText(file, "Shift_JIS");
@@ -387,9 +387,9 @@ export default function AdminPage() {
             <button onClick={() => setActiveTab("members")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "members" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
               所属チーム登録
             </button>
-            {/* 👑 【完成】ヘッダーに「組織図（連絡網）」のメニュー切り替えボタンを設置 */}
+            {/* 👑 【完成】ヘッダーに「組織図」のメニュー切り替えボタンを設置 */}
             <button onClick={() => setActiveTab("org")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "org" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
-              🗺️ 組織図（連絡網）
+               組織図
             </button>
             {userRole === "owner" && (
               <button onClick={() => setActiveTab("csv")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "csv" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
@@ -404,7 +404,8 @@ export default function AdminPage() {
         </button>
       </header>
 
-      <main className="max-w-6xl mx-auto px-4 py-4 space-y-4">
+      {/* 👑 【全体最適化】組織図タブ「org」が選択されているときだけ、横幅制限を完全に解除（max-w-[100%]、px-6）する動的制御を実装 */}
+      <main className={`${activeTab === "org" ? "max-w-[100%] px-6" : "max-w-6xl mx-auto px-4"} py-4 space-y-4`}>
         {statusMessage && <div className="bg-emerald-50 text-emerald-800 border border-emerald-100 px-4 py-2.5 rounded-xl font-medium shadow-sm animate-fadeIn">{statusMessage}</div>}
 
         {/* 👑 組織図タブの時は、対象月などの不要な勤怠用フィルターバーを非表示にする制御 */}
@@ -515,7 +516,7 @@ export default function AdminPage() {
           />
         )}
 
-        {/* 👑 【完成】仮のメッセージ枠を消去し、本物の組織図コンポーネントを綺麗にマウントしました */}
+        {/* 👑 【完成】本物の組織図コンポーネントをマウント */}
         {activeTab === "org" && (
           <TabOrgChart 
             members={filteredMembers}

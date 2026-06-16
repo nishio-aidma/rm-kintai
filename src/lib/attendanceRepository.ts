@@ -392,7 +392,7 @@ export const attendanceRepository = {
     }
   },
 
-  // 👑 【新設】組織図からポチポチと担当リーダー（leadingTeams型配列）を更新するためのリポジトリ関数
+  // 👑 組織図からポチポチと担当リーダー（leadingTeams型配列）を更新するためのリポジトリ関数
   updateMemberLeadingTeams: async (email: string, leadingTeams: string[]) => {
     try {
       const memberRef = doc(db, "members", email);
@@ -403,6 +403,34 @@ export const attendanceRepository = {
       return true;
     } catch (error) {
       throw error;
+    }
+  },
+
+  // 👑 【新設】子チーム（下部階層）のデータを Firebase（Firestore）に永久保存するためのリポジトリ関数
+  saveSubTeams: async (parentDept: string, subTeamsList: any[]) => {
+    try {
+      const docRef = doc(db, "org_sub_teams", parentDept);
+      await setDoc(docRef, {
+        subTeams: subTeamsList,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+      return true;
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  // 👑 【新設】Firebase（Firestore）から指定された親チームの子チームデータを自動取得するためのリポジトリ関数
+  getSubTeams: async (parentDept: string) => {
+    try {
+      const docRef = doc(db, "org_sub_teams", parentDept);
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        return snap.data().subTeams || [];
+      }
+      return [];
+    } catch (error) {
+      return [];
     }
   },
 

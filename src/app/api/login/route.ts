@@ -19,8 +19,8 @@ export async function POST(req: Request) {
     const membersRef = collection(db, "members");
     const q = query(
       membersRef,
-      where("lastname", "==", lastName),
-      where("firstname", "==", firstName)
+      where("lastName", "==", lastName),
+      where("firstName", "==", firstName)
     );
     const snapshot = await getDocs(q);
 

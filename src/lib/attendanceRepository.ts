@@ -429,7 +429,7 @@ export const attendanceRepository = {
     }
   },
 
-  // 👑 【新設】Firebase（Firestore）から指定された親チームの子チームデータを自動取得するためのリポジトリ関数
+  // 修正箇所：getSubTeams を以下の形に書き換えてください
   getSubTeams: async (parentDept: string) => {
     try {
       const q = query(
@@ -438,13 +438,16 @@ export const attendanceRepository = {
       );
       const querySnapshot = await getDocs(q);
       
-      // メンバーの「ID（文字列）」のみを抽出した配列を作成
-      const memberIds = querySnapshot.docs.map(doc => doc.id);
+      // ここをメンバーの「オブジェクト」を返す形に戻す（ログイン正常化のため）
+      const members = querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
 
       return [{
         id: parentDept,
         name: parentDept,
-        members: memberIds // string[] 型に適合
+        members: members // ここはメンバーのオブジェクト配列
       }];
     } catch (error) {
       console.error(`【レポジトリ確認】${parentDept} 取得エラー:`, error);

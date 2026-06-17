@@ -44,34 +44,34 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
   }, [members]);
 
   // 【Firebase連携】全メンバーがデータを閲覧・ロードできるように修正
-useEffect(() => {
-  const loadFirebaseSubTeams = async () => {
-    setIsLoadingSubTeams(true); // ロード中表示
-    try {
-      const loadedSubTeams: { [parentDept: string]: SubTeam[] } = {};
-      
-      // 並列で全部署のデータを取得
-      await Promise.all(
-        uniqueDepartments.map(async (dept) => {
-          if (dept) {
-            const res = await attendanceRepository.getSubTeams(dept);
-            // データが存在する場合のみ格納
-            loadedSubTeams[dept] = res || [];
-          }
-        })
-      );
-      setSubTeams(loadedSubTeams);
-    } catch (error) {
-      console.error("【データ取得エラー】:", error);
-    } finally {
-      setIsLoadingSubTeams(false);
-    }
-  };
+  useEffect(() => {
+    const loadFirebaseSubTeams = async () => {
+      setIsLoadingSubTeams(true); 
+      try {
+        const loadedSubTeams: { [parentDept: string]: SubTeam[] } = {}; // これが正解の変数
+        
+        // 並列で全部署のデータを取得
+        await Promise.all(
+          uniqueDepartments.map(async (dept) => {
+            if (dept) {
+              const res = await attendanceRepository.getSubTeams(dept);
+              // loaded ではなく loadedSubTeams に代入する
+              loadedSubTeams[dept] = res as any; 
+            }
+          })
+        );
+        setSubTeams(loadedSubTeams); // 正しくセットする
+      } catch (error) {
+        console.error("【データ取得エラー】:", error);
+      } finally {
+        setIsLoadingSubTeams(false);
+      }
+    };
 
-  if (uniqueDepartments.length > 0) {
-    loadFirebaseSubTeams();
-  }
-}, [uniqueDepartments]);
+    if (uniqueDepartments.length > 0) {
+      loadFirebaseSubTeams();
+    }
+  }, [uniqueDepartments]);
 
   const getLeadersForDepartment = (deptName: string) => {
     return localMembers.filter(m => m.leadingTeams?.includes(deptName));

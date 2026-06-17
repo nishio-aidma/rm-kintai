@@ -82,13 +82,16 @@ export const attendanceRepository = {
           const [startH, startM] = startTimeStr.split(":").map(Number);
           const [endH, endM] = endTimeStr.split(":").map(Number);
           const startTotalMinutes = startH * 60 + startM;
-          const endTotalMinutes = endH * 60 + endM;
+          let endTotalMinutes = endH * 60 + endM;
           
-          if (endTotalMinutes > startTotalMinutes) {
-            const totalDiff = endTotalMinutes - startTotalMinutes;
-            workMinutes = Math.max(0, totalDiff - validBreakMinutes);
-            workHours = Math.round((workMinutes / 60) * 100) / 100;
+          // 🎯日マタギ対応：終了時刻が開始時刻以下の場合は翌日とみなし、24時間（1440分）を足す
+          if (endTotalMinutes <= startTotalMinutes) {
+            endTotalMinutes += 24 * 60;
           }
+          
+          const totalDiff = endTotalMinutes - startTotalMinutes;
+          workMinutes = Math.max(0, totalDiff - validBreakMinutes);
+          workHours = Math.round((workMinutes / 60) * 100) / 100;
         }
       }
 
@@ -164,13 +167,16 @@ export const attendanceRepository = {
       const [startH, startM] = updatedFields.startTime.split(":").map(Number);
       const [endH, endM] = updatedFields.endTime.split(":").map(Number);
       const startTotalMinutes = startH * 60 + startM;
-      const endTotalMinutes = endH * 60 + endM;
+      let endTotalMinutes = endH * 60 + endM;
       
-      if (endTotalMinutes > startTotalMinutes) {
-        const totalDiff = endTotalMinutes - startTotalMinutes;
-        workMinutes = Math.max(0, totalDiff - validBreakMinutes);
-        workHours = Math.round((workMinutes / 60) * 100) / 100;
+      // 🎯日マタギ対応：終了時刻が開始時刻以下の場合は翌日とみなし、24時間（1440分）を足す
+      if (endTotalMinutes <= startTotalMinutes) {
+        endTotalMinutes += 24 * 60;
       }
+      
+      const totalDiff = endTotalMinutes - startTotalMinutes;
+      workMinutes = Math.max(0, totalDiff - validBreakMinutes);
+      workHours = Math.round((workMinutes / 60) * 100) / 100;
 
       await updateDoc(recordRef, { 
         ...updatedFields, 
@@ -197,13 +203,16 @@ export const attendanceRepository = {
       const [startH, startM] = fields.startTime.split(":").map(Number);
       const [endH, endM] = fields.endTime.split(":").map(Number);
       const startTotalMinutes = startH * 60 + startM;
-      const endTotalMinutes = endH * 60 + endM;
+      let endTotalMinutes = endH * 60 + endM;
 
-      if (endTotalMinutes > startTotalMinutes) {
-        const totalDiff = endTotalMinutes - startTotalMinutes;
-        workMinutes = Math.max(0, totalDiff - validBreakMinutes);
-        workHours = Math.round((workMinutes / 60) * 100) / 100;
+      // 🎯日マタギ対応：終了時刻が開始時刻以下の場合は翌日とみなし、24時間（1440分）を足す
+      if (endTotalMinutes <= startTotalMinutes) {
+        endTotalMinutes += 24 * 60;
       }
+
+      const totalDiff = endTotalMinutes - startTotalMinutes;
+      workMinutes = Math.max(0, totalDiff - validBreakMinutes);
+      workHours = Math.round((workMinutes / 60) * 100) / 100;
 
       const newRecord = {
         userId: "admin_created",
@@ -426,10 +435,14 @@ export const attendanceRepository = {
       const docRef = doc(db, "org_sub_teams", parentDept);
       const snap = await getDoc(docRef);
       if (snap.exists()) {
-        return snap.data().subTeams || [];
+        const data = snap.data();
+        console.log(`【レポジトリ確認】${parentDept} 取得データ:`, data.subTeams);
+        return data.subTeams || [];
       }
+      console.log(`【レポジトリ確認】${parentDept} はドキュメントが存在しません`);
       return [];
     } catch (error) {
+      console.error(`【レポジトリ確認】${parentDept} 取得エラー:`, error);
       return [];
     }
   },

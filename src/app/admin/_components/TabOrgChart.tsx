@@ -27,34 +27,51 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
   const [showAddSubModal, setShowAddSubModal] = useState<string | null>(null);
   const [newSubTeamName, setNewSubTeamName] = useState("");
 
+  // Windows標準のモーダルを使わないためのカスタム通知ステート
+  const [toastMessage, setToastMessage] = useState<{ text: string; type: "success" | "error" } | null>(null);
+
+  // 通知を3秒後に自動で消すタイマー
+  useEffect(() => {
+    if (toastMessage) {
+      const timer = setTimeout(() => setToastMessage(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [toastMessage]);
+
   // 親から渡されたmembersデータが更新されたら、子画面のローカルデータも同期する
   useEffect(() => {
     setLocalMembers(members);
   }, [members]);
 
-  // 【Firebase連携】画面が開いた瞬間に、すべての子チームデータをFirebaseから自動ロード
-  useEffect(() => {
-    const loadFirebaseSubTeams = async () => {
-      try {
-        const loadedSubTeams: { [parentDept: string]: SubTeam[] } = {};
-        await Promise.all(
-          uniqueDepartments.map(async (dept) => {
-            if (dept) {
-              const res = await attendanceRepository.getSubTeams(dept);
-              loadedSubTeams[dept] = res;
-            }
-          })
-        );
-        setSubTeams(loadedSubTeams);
-      } catch (error) {
-        console.error("子チームデータの取得に失敗しました:", error);
-      } finally {
-        setIsLoadingSubTeams(false);
-      }
-    };
+  // 【Firebase連携】全メンバーがデータを閲覧・ロードできるように修正
+useEffect(() => {
+  const loadFirebaseSubTeams = async () => {
+    setIsLoadingSubTeams(true); // ロード中表示
+    try {
+      const loadedSubTeams: { [parentDept: string]: SubTeam[] } = {};
+      
+      // 並列で全部署のデータを取得
+      await Promise.all(
+        uniqueDepartments.map(async (dept) => {
+          if (dept) {
+            const res = await attendanceRepository.getSubTeams(dept);
+            // データが存在する場合のみ格納
+            loadedSubTeams[dept] = res || [];
+          }
+        })
+      );
+      setSubTeams(loadedSubTeams);
+    } catch (error) {
+      console.error("【データ取得エラー】:", error);
+    } finally {
+      setIsLoadingSubTeams(false);
+    }
+  };
 
+  if (uniqueDepartments.length > 0) {
     loadFirebaseSubTeams();
-  }, [uniqueDepartments]);
+  }
+}, [uniqueDepartments]);
 
   const getLeadersForDepartment = (deptName: string) => {
     return localMembers.filter(m => m.leadingTeams?.includes(deptName));
@@ -68,24 +85,28 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
   const handleAddSubTeam = async (parentDept: string) => {
     if (!newSubTeamName.trim()) return;
     
+    // 現在のリストを取得
+    const currentList = subTeams[parentDept] || [];
     const newTeam: SubTeam = {
       id: `sub-${Date.now()}`,
       name: newSubTeamName.trim(),
       members: []
     };
-
-    const updatedList = [...(subTeams[parentDept] || []), newTeam];
+    const updatedList = [...currentList, newTeam];
 
     try {
+      console.log(`【デバッグ】保存先: org_sub_teams コレクション / ドキュメントID: ${parentDept}`);
+      
+      // 保存実行
       await attendanceRepository.saveSubTeams(parentDept, updatedList);
-      setSubTeams(prev => ({
-        ...prev,
-        [parentDept]: updatedList
-      }));
+      
+      // 保存成功したら即時反映
+      setSubTeams(prev => ({ ...prev, [parentDept]: updatedList }));
       setNewSubTeamName("");
       setShowAddSubModal(null);
+      
     } catch (error) {
-      alert("子チームの保存に失敗しました。");
+      console.error("【保存エラー】保存に失敗しました", error);
     }
   };
 
@@ -104,8 +125,9 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
       setLocalMembers(prev =>
         prev.map(m => (m.email === email ? { ...m, leadingTeams: updatedLeading } : m))
       );
+      setToastMessage({ text: "👑 リーダーをアサインしました", type: "success" });
     } catch (error) {
-      alert("リーダーのアサインに失敗しました。");
+      setToastMessage({ text: "❌ リーダーのアサインに失敗しました。", type: "error" });
     }
   };
 
@@ -120,8 +142,9 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
       setLocalMembers(prev =>
         prev.map(m => (m.email === email ? { ...m, leadingTeams: updatedLeading } : m))
       );
+      setToastMessage({ text: "✕ リーダーの解除を行いました", type: "success" });
     } catch (error) {
-      alert("リーダーの解除に失敗しました。");
+      setToastMessage({ text: "❌ リーダーの解除に失敗しました。", type: "error" });
     }
   };
 
@@ -150,7 +173,6 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
         fontSize: 54, color: "FFFFFF", bold: true, fontFace: "Meiryo", align: "center"
       });
       const today = new Date();
-      // 👑 【タイポ修正完了】today.getDate にしっかりと () を追加してエラーを完全破壊しました
       const dateStr = `${today.getFullYear()}年${String(today.getMonth() + 1).padStart(2, "0")}月${String(today.getDate())}日 改訂`;
       slide1.addText(dateStr, {
         x: 1.0, y: 3.8, w: 11.3, h: 0.5,
@@ -184,12 +206,12 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
               fill: { color: "FFF3DD" }, line: { color: "FFE0A3", width: 1 }
             });
             slide.addText(leader.name, {
-              x: 0.8, y: 2.4 + offset, w: 5.0, h: 0.3,
-              fontSize: 16, color: "111827", bold: true, fontFace: "Meiryo"
+              x: 0.8, y: 2.38 + offset, w: 5.0, h: 0.25,
+              fontSize: 14, color: "111827", bold: true, fontFace: "Meiryo"
             });
             slide.addText(`Mail: ${leader.email}`, {
-              x: 0.8, y: 2.7 + offset, w: 5.0, h: 0.25,
-              fontSize: 10, color: "64748B", fontFace: "Consolas"
+              x: 0.8, y: 2.68 + offset, w: 5.0, h: 0.2,
+              fontSize: 9, color: "64748B", fontFace: "Consolas"
             });
           });
         } else {
@@ -205,14 +227,15 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
         });
 
         if (deptMembers.length > 0) {
+          // 🎯 改善：margin指定を[インチ]単位の正しい値（上下0.05インチ、左右0.08インチ）に修正しました
           const tableRows = deptMembers.map(m => [
-            { text: m.name, options: { bold: true, fontFace: "Meiryo", fontSize: 10 } },
-            { text: m.email, options: { fontFace: "Consolas", fontSize: 9, color: "475569" } }
+            { text: m.name, options: { bold: true, fontFace: "Meiryo", fontSize: 9.5, margin: [0.05, 0.08, 0.05, 0.08] as [number, number, number, number] } },
+            { text: m.email, options: { fontFace: "Consolas", fontSize: 9, color: "475569", margin: [0.05, 0.08, 0.05, 0.08] as [number, number, number, number] } }
           ]);
 
           slide.addTable(tableRows, {
             x: 6.5, y: 2.3, w: 6.3,
-            colW: [1.8, 4.5],
+            colW: [1.5, 4.8],
             border: { type: "solid", color: "E2E8F0", pt: 1 },
             fill: { color: "F8FAFC" },
             valign: "middle",
@@ -231,9 +254,10 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
       const todayStr = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, "0")}${String(today.getDate()).padStart(2, "0")}`;
       // @ts-ignore
       await pptx.writeFile({ fileName: `RM_組織図_${todayStr}.pptx` });
+      setToastMessage({ text: "📥 組織図スライドを出力しました！", type: "success" });
     } catch (e) {
       console.error(e);
-      alert("組織図の生成中にエラーが発生しました。");
+      setToastMessage({ text: "❌ 組織図の生成中にエラーが発生しました。", type: "error" });
     } finally {
       setIsExporting(false);
     }
@@ -251,6 +275,15 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
 
   return (
     <div className="w-full space-y-6 animate-fadeIn">
+      {/* カスタム通知（トーストUI）：画面の右上にふわっと浮き出る綺麗な警告メッセージ */}
+      {toastMessage && (
+        <div className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-xl shadow-xl font-bold text-xs transition-all animate-fadeIn ${
+          toastMessage.type === "success" ? "bg-emerald-500 text-white" : "bg-rose-500 text-white"
+        }`}>
+          {toastMessage.text}
+        </div>
+      )}
+
       {/* 上部ヘッダーエリア */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 flex items-center justify-between">
         <div>

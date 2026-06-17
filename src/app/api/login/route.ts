@@ -24,6 +24,9 @@ export async function POST(req: Request) {
     );
     const snapshot = await getDocs(q);
 
+    console.log("【デバッグ】検索用データ:", { lastName, firstName });
+    console.log("【デバッグ】検索ヒット数:", snapshot.size);
+
     if (snapshot.empty) {
       return NextResponse.json(
         { error: "ユーザーが見つかりません" },

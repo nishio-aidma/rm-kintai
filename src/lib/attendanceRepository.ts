@@ -432,15 +432,20 @@ export const attendanceRepository = {
   // 👑 【新設】Firebase（Firestore）から指定された親チームの子チームデータを自動取得するためのリポジトリ関数
   getSubTeams: async (parentDept: string) => {
     try {
-      const docRef = doc(db, "org_sub_teams", parentDept);
-      const snap = await getDoc(docRef);
-      if (snap.exists()) {
-        const data = snap.data();
-        console.log(`【レポジトリ確認】${parentDept} 取得データ:`, data.subTeams);
-        return data.subTeams || [];
-      }
-      console.log(`【レポジトリ確認】${parentDept} はドキュメントが存在しません`);
-      return [];
+      const q = query(
+        collection(db, "members"),
+        where("department", "==", parentDept)
+      );
+      const querySnapshot = await getDocs(q);
+      
+      // メンバーの「ID（文字列）」のみを抽出した配列を作成
+      const memberIds = querySnapshot.docs.map(doc => doc.id);
+
+      return [{
+        id: parentDept,
+        name: parentDept,
+        members: memberIds // string[] 型に適合
+      }];
     } catch (error) {
       console.error(`【レポジトリ確認】${parentDept} 取得エラー:`, error);
       return [];

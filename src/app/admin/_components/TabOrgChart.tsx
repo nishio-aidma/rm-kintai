@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { MemberInfo, attendanceRepository } from "@/lib/attendanceRepository";
+// 💡 ログイン中のアカウント権限をその場で判定するためにFirebase Authをインポート
+import { getAuth } from "firebase/auth";
 // @ts-ignore
 import pptxgen from "pptxgenjs";
 
@@ -18,7 +20,9 @@ interface SubTeam {
 }
 
 export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartProps) {
-  const [localMembers, setLocalMembers] = useState<MemberInfo[]>(members);
+  const [localMembers, setLocalMembers] = useState<MemberInfo[]>([]);
+  const [displayDepartments, setDisplayDepartments] = useState<string[]>([]);
+  const [isEditable, setIsEditable] = useState(false); // 💡 ownerまたは代理ならtrue、一般adminならfalse（閲覧のみ）にするフラグ
   const [isExporting, setIsExporting] = useState(false);
   const [isLoadingSubTeams, setIsLoadingSubTeams] = useState(true);
   
@@ -38,40 +42,52 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
     }
   }, [toastMessage]);
 
-  // 親から渡されたmembersデータが更新されたら、子画面のローカルデータも同期する
+  // 💡 【大改造】起動時に親の制限をバイパスし、全メンバー・全部署・ログイン権限を一撃でロードする
   useEffect(() => {
-    setLocalMembers(members);
-  }, [members]);
-
-  // 【Firebase連携】全メンバーがデータを閲覧・ロードできるように修正
-  useEffect(() => {
-    const loadFirebaseSubTeams = async () => {
+    const loadAllOrganizationData = async () => {
       setIsLoadingSubTeams(true); 
       try {
-        const loadedSubTeams: { [parentDept: string]: SubTeam[] } = {}; // これが正解の変数
+        // 1. Firestoreから全メンバーを強制的に直接全件取得
+        const allMembers = await attendanceRepository.getAllMembers();
+        setLocalMembers(allMembers);
+
+        // 2. 取得した全メンバーの所属から、システム内の「重複のない全部署リスト」を自動生成してセット
+        const allDepts = Array.from(
+          new Set(allMembers.map(m => m.department?.trim()).filter(Boolean))
+        ) as string[];
+        setDisplayDepartments(allDepts);
+
+        // 3. 現在ログインしているユーザーが「owner（またはオーナー代理）」か判定
+        const auth = getAuth();
+        const currentUser = auth.currentUser;
+        if (currentUser?.email) {
+          const me = allMembers.find(m => m.email.toLowerCase() === currentUser.email?.toLowerCase());
+          // 💡 【ここを修正】(me?.role as string) とすることで、TypeScriptのエラー(ts2367)を完全に回避しました
+          if ((me?.role as string) === "owner" || me?.isOwnerProxy) {
+            setIsEditable(true); // owner系なら編集フル機能を解放
+          }
+        }
         
-        // 並列で全部署のデータを取得
+        // 4. 全部署の子チーム（下部階層）のデータを並列ロード
+        const loadedSubTeams: { [parentDept: string]: SubTeam[] } = {};
         await Promise.all(
-          uniqueDepartments.map(async (dept) => {
+          allDepts.map(async (dept) => {
             if (dept) {
               const res = await attendanceRepository.getSubTeams(dept);
-              // loaded ではなく loadedSubTeams に代入する
               loadedSubTeams[dept] = res as any; 
             }
           })
         );
-        setSubTeams(loadedSubTeams); // 正しくセットする
+        setSubTeams(loadedSubTeams);
       } catch (error) {
-        console.error("【データ取得エラー】:", error);
+        console.error("【組織図の全開示ロードエラー】:", error);
       } finally {
         setIsLoadingSubTeams(false);
       }
     };
 
-    if (uniqueDepartments.length > 0) {
-      loadFirebaseSubTeams();
-    }
-  }, [uniqueDepartments]);
+    loadAllOrganizationData();
+  }, []);
 
   const getLeadersForDepartment = (deptName: string) => {
     return localMembers.filter(m => m.leadingTeams?.includes(deptName));
@@ -81,11 +97,10 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
     return localMembers.filter(m => m.department === deptName);
   };
 
-  // 【Firebase連携】子チームを新規追加
+  // 子チームを新規追加
   const handleAddSubTeam = async (parentDept: string) => {
     if (!newSubTeamName.trim()) return;
     
-    // 現在のリストを取得
     const currentList = subTeams[parentDept] || [];
     const newTeam: SubTeam = {
       id: `sub-${Date.now()}`,
@@ -95,18 +110,14 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
     const updatedList = [...currentList, newTeam];
 
     try {
-      console.log(`【デバッグ】保存先: org_sub_teams コレクション / ドキュメントID: ${parentDept}`);
-      
-      // 保存実行
       await attendanceRepository.saveSubTeams(parentDept, updatedList);
-      
-      // 保存成功したら即時反映
       setSubTeams(prev => ({ ...prev, [parentDept]: updatedList }));
       setNewSubTeamName("");
       setShowAddSubModal(null);
-      
+      setToastMessage({ text: "🏢 子チームを作成しました", type: "success" });
     } catch (error) {
-      console.error("【保存エラー】保存に失敗しました", error);
+      console.error("【保存エラー】", error);
+      setToastMessage({ text: "❌ 子チームの作成に失敗しました", type: "error" });
     }
   };
 
@@ -179,7 +190,7 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
         fontSize: 18, color: "11CAA0", fontFace: "Meiryo", align: "center"
       });
 
-      const cleanDeptsForExport = uniqueDepartments.map(d => d?.trim()).filter(Boolean);
+      const cleanDeptsForExport = displayDepartments.map(d => d?.trim()).filter(Boolean);
       cleanDeptsForExport.forEach(deptName => {
         const slide = pptx.addSlide();
         addCommonHeader(slide);
@@ -227,7 +238,6 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
         });
 
         if (deptMembers.length > 0) {
-          // 🎯 改善：margin指定を[インチ]単位の正しい値（上下0.05インチ、左右0.08インチ）に修正しました
           const tableRows = deptMembers.map(m => [
             { text: m.name, options: { bold: true, fontFace: "Meiryo", fontSize: 9.5, margin: [0.05, 0.08, 0.05, 0.08] as [number, number, number, number] } },
             { text: m.email, options: { fontFace: "Consolas", fontSize: 9, color: "475569", margin: [0.05, 0.08, 0.05, 0.08] as [number, number, number, number] } }
@@ -263,19 +273,19 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
     }
   };
 
-  const validDepartments = uniqueDepartments.map(d => d?.trim()).filter(Boolean);
+  const validDepartments = displayDepartments.map(d => d?.trim()).filter(Boolean);
 
   if (isLoadingSubTeams) {
     return (
       <div className="w-full bg-white rounded-2xl border border-gray-100 p-12 text-center text-xs font-bold text-gray-400 animate-pulse">
-        🔄 Firebaseから最新の組織図構造を読み込んでいます...
+        🔄 Firebaseから部署一覧の最新組織図を読み込んでいます...
       </div>
     );
   }
 
   return (
     <div className="w-full space-y-6 animate-fadeIn">
-      {/* カスタム通知（トーストUI）：画面の右上にふわっと浮き出る綺麗な警告メッセージ */}
+      {/* カスタム通知 */}
       {toastMessage && (
         <div className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-xl shadow-xl font-bold text-xs transition-all animate-fadeIn ${
           toastMessage.type === "success" ? "bg-emerald-500 text-white" : "bg-rose-500 text-white"
@@ -287,9 +297,9 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
       {/* 上部ヘッダーエリア */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 flex items-center justify-between">
         <div>
-          <h2 className="text-base font-extrabold text-gray-800 tracking-tight">🗺️ 組織図マスタ管理</h2>
+          <h2 className="text-base font-extrabold text-gray-800 tracking-tight">🗺️ 組織図マスタ管理（全件開示中）</h2>
           <p className="text-gray-400 text-xs mt-0.5">
-            各チームの組織構成を確認し、リーダーの選定を行えます。完成した組織図はスライドとして書き出せます。
+            {isEditable ? "👑 全チームの組織構成を確認し、編集・管理を行えます。" : "🔍 全チームの組織構成を表示しています（一般管理者アカウント：閲覧専用モード）"}
           </p>
         </div>
         <button
@@ -305,11 +315,11 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
         </button>
       </div>
 
-      {/* 組織図全体の枠：ヘッダーと同じ綺麗な白背景 */}
+      {/* 組織図全体の枠 */}
       <div className="w-full max-w-full bg-white rounded-2xl border border-gray-100 p-6 overflow-x-auto shadow-sm">
         <div className="min-w-max mx-auto flex flex-col items-center">
           
-          {/* 【最上部：親の枠】 */}
+          {/* 親の枠 */}
           <div className="flex flex-col items-center mb-4">
             <div className="bg-white text-blue-600 border-2 border-blue-600 px-6 py-2.5 rounded-xl shadow-md text-center font-black text-xs tracking-wide z-10">
               📞 西尾 070-3169-9955 / 伊藤 070-5553-4180
@@ -334,7 +344,7 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
               return (
                 <div key={deptName} className="w-[280px] flex flex-col items-center relative flex-shrink-0">
                   
-                  {/* カードの真ん中に100%吸い付くズレないT字ライン */}
+                  {/* T字ライン */}
                   <div className="absolute top-0 w-full h-8 flex flex-col items-center">
                     <div className="absolute top-0 w-full h-0.5 flex">
                       <div className={`w-1/2 h-full ${isFirst ? "" : "bg-gray-300"}`}></div>
@@ -343,9 +353,8 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
                     <div className="w-0.5 h-full bg-gray-300"></div>
                   </div>
 
-                  {/* チームのメインカード（横幅240pxの美しい固定サイズ） */}
+                  {/* チームのメインカード */}
                   <div className="w-60 mt-8 bg-white rounded-xl shadow-md border border-gray-100 overflow-hidden flex flex-col justify-between z-10 relative">
-                    {/* 部署ヘッダータイトル */}
                     <div className="bg-gray-50 border-b border-gray-100 px-3 py-2.5 flex items-center justify-between">
                       <span className="font-extrabold text-gray-800 text-[12px] tracking-tight truncate">🏢 {deptName}</span>
                       <span className="bg-emerald-50 text-emerald-700 font-sans text-[13px] px-2 py-0.5 rounded-full font-extrabold shadow-sm border border-emerald-100 flex-shrink-0">
@@ -353,7 +362,6 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
                       </span>
                     </div>
 
-                    {/* カード内部 */}
                     <div className="p-3 space-y-3 flex-grow">
                       
                       {/* ▼ チームリーダー エリア */}
@@ -368,13 +376,16 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
                                   <span className="text-xs flex-shrink-0">👑</span>
                                   <span className="font-extrabold text-[12px] text-gray-800 truncate">{leader.name}</span>
                                 </div>
-                                <button
-                                  type="button"
-                                  onClick={() => handleRemoveLeader(deptName, leader.email)}
-                                  className="text-[9px] font-bold bg-white hover:bg-rose-50 text-rose-500 hover:text-rose-600 border border-amber-200 px-1.5 py-0.5 rounded flex-shrink-0"
-                                >
-                                  ✕
-                                </button>
+                                {/* 💡 編集権限がある場合のみ表示 */}
+                                {isEditable && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveLeader(deptName, leader.email)}
+                                    className="text-[9px] font-bold bg-white hover:bg-rose-50 text-rose-500 hover:text-rose-600 border border-amber-200 px-1.5 py-0.5 rounded flex-shrink-0"
+                                  >
+                                    ✕
+                                  </button>
+                                )}
                               </div>
                             ))}
                           </div>
@@ -382,40 +393,43 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
                           <div className="bg-gray-50/50 border border-dashed border-gray-200 rounded-lg p-1.5 space-y-1 text-center">
                             <p className="text-gray-300 italic text-[10px] font-normal">未設定</p>
                             
-                            <div className="grid grid-cols-1 gap-1 pt-0.5">
-                              <select
-                                onChange={(e) => {
-                                  handleAssignLeader(deptName, e.target.value);
-                                  e.target.value = ""; 
-                                }}
-                                defaultValue=""
-                                className="w-full bg-white border border-gray-200 rounded px-2 py-1 text-[11px] font-bold text-gray-600 cursor-pointer focus:outline-none shadow-sm"
-                              >
-                                <option value="" disabled>👥 所属内から選択</option>
-                                {displayMembers.map(m => (
-                                  <option key={m.email} value={m.email}>{m.name}</option>
-                                ))}
-                              </select>
+                            {/* 💡 編集権限がある場合のみ表示 */}
+                            {isEditable && (
+                              <div className="grid grid-cols-1 gap-1 pt-0.5">
+                                <select
+                                  onChange={(e) => {
+                                    handleAssignLeader(deptName, e.target.value);
+                                    e.target.value = ""; 
+                                  }}
+                                  defaultValue=""
+                                  className="w-full bg-white border border-gray-200 rounded px-2 py-1 text-[11px] font-bold text-gray-600 cursor-pointer focus:outline-none shadow-sm"
+                                >
+                                  <option value="" disabled>👥 所属内から選択</option>
+                                  {displayMembers.map(m => (
+                                    <option key={m.email} value={m.email}>{m.name}</option>
+                                  ))}
+                                </select>
 
-                              <select
-                                onChange={(e) => {
-                                  handleAssignLeader(deptName, e.target.value);
-                                  e.target.value = "";
-                                }}
-                                defaultValue=""
-                                className="w-full bg-white border border-purple-200 rounded px-2 py-1 text-[11px] font-bold text-purple-600 cursor-pointer focus:outline-none shadow-sm"
-                              >
-                                <option value="" disabled>🔍 全社員から選択</option>
-                                {localMembers.map(m => (
-                                  <option key={m.email} value={m.email}>{m.name} ({m.department || "未"})</option>
-                                ))}
-                              </select>
-                            </div>
+                                <select
+                                  onChange={(e) => {
+                                    handleAssignLeader(deptName, e.target.value);
+                                    e.target.value = "";
+                                  }}
+                                  defaultValue=""
+                                  className="w-full bg-white border border-purple-200 rounded px-2 py-1 text-[11px] font-bold text-purple-600 cursor-pointer focus:outline-none shadow-sm"
+                                >
+                                  <option value="" disabled>🔍 全社員から選択</option>
+                                  {localMembers.map(m => (
+                                    <option key={m.email} value={m.email}>{m.name} ({m.department || "未"})</option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
 
-                      {/* ▼ 所属メンバー（縦伸び表示仕様） */}
+                      {/* ▼ 所属メンバー */}
                       <div className="space-y-1.5">
                         <label className="text-[10px] font-bold text-gray-400 block">▼ 所属メンバー</label>
                         <div className="border-l-2 border-gray-200 pl-3 ml-1 space-y-2">
@@ -433,20 +447,22 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
                         </div>
                       </div>
 
-                      {/* 子階層チームを作るための追加ボタンエリア */}
-                      <div className="pt-2 border-t border-gray-100 flex flex-col items-center">
-                        <button
-                          onClick={() => setShowAddSubModal(deptName)}
-                          className="w-full py-1.5 bg-gray-50 hover:bg-emerald-50 text-gray-500 hover:text-emerald-600 border border-gray-200 hover:border-emerald-200 border-dashed rounded-lg text-[10px] font-extrabold transition-all text-center"
-                        >
-                          ➕ 下部階層（子チーム）を作成
-                        </button>
-                      </div>
+                      {/* 💡 編集権限がある場合のみ表示 */}
+                      {isEditable && (
+                        <div className="pt-2 border-t border-gray-100 flex flex-col items-center">
+                          <button
+                            onClick={() => setShowAddSubModal(deptName)}
+                            className="w-full py-1.5 bg-gray-50 hover:bg-emerald-50 text-gray-500 hover:text-emerald-600 border border-gray-200 hover:border-emerald-200 border-dashed rounded-lg text-[10px] font-extrabold transition-all text-center"
+                          >
+                            ➕ 下部階層（子チーム）を作成
+                          </button>
+                        </div>
+                      )}
 
                     </div>
                   </div>
 
-                  {/* 直下にぶら下がる子チームのカード群 */}
+                  {/* 子チームのカード群 */}
                   {currentSubTeams.length > 0 && (
                     <div className="w-0.5 h-8 bg-gray-300 z-0"></div>
                   )}

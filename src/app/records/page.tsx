@@ -25,7 +25,7 @@ export default function RecordsPage() {
   const [userEmail, setUserEmail] = useState<string>("読み込み中...");
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
-  // 👑 Windowsの標準ポップアップ(confirm)を使用せず、テーブル内で美しく削除確認を行うための状態管理
+  // 👑 中央にカスタムモーダルを表示して美しく削除確認を行うための状態管理
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   const [selectedMonth, setSelectedMonth] = useState<string>(() => {
@@ -95,17 +95,20 @@ export default function RecordsPage() {
     setFilteredRecords(filtered);
   }, [selectedMonth, records]);
 
-  const handleVerifyRow = async (id: string) => {
+  // 💡 【機能拡張】確認済みの「確定」と「解除」を1つの関数でトグル制御できるようにアップデート
+  const handleToggleVerifyRow = async (id: string, currentStatus: boolean) => {
     try {
-      setStatusMessage("稼働データを確定中...");
-      await attendanceRepository.updateRecordVerification(id, true);
+      const nextStatus = !currentStatus; // 現在がtrueならfalse、falseならtrueに反転
+      setStatusMessage(nextStatus ? "稼働データを確定中..." : "確定を解除中...");
       
-      setStatusMessage("稼働セクションを確認済みにしました。");
+      await attendanceRepository.updateRecordVerification(id, nextStatus);
+      
+      setStatusMessage(nextStatus ? "稼働セクションを確認済みにしました。" : "確認済みを解除（未確認に）しました。");
       setTimeout(() => setStatusMessage(null), 3000);
       
       await fetchRecords(userEmail);
     } catch (error) {
-      setStatusMessage("エラー：確認処理に失敗しました。");
+      setStatusMessage("エラー：確認ステータスの変更に失敗しました。");
     }
   };
 
@@ -208,37 +211,38 @@ export default function RecordsPage() {
                       <td className="py-2 tabular-nums text-gray-400">{record.endTime === "---" ? "---" : `${record.breakMinutes} 分`}</td>
                       <td className="py-2 tabular-nums font-semibold text-gray-700">{record.endTime === "---" ? "---" : `${record.workHours} 時間`}</td>
                       
-                      {/* 👑 開発方針徹底：Windowsのポップアップを使わず、テーブル内で美しく安全に確認するUI */}
+                      {/* 削除ボタンエリア */}
                       <td className="py-2 text-center">
                         {record.verified ? (
-                          <span className="text-gray-300 select-none cursor-not-allowed" title="確認済みのデータは削除できません">🔒</span>
-                        ) : deleteConfirmId === record.id ? (
-                          <div className="flex items-center justify-center space-x-1.5 bg-red-50 py-0.5 px-1.5 rounded-lg border border-red-100 animate-fadeIn">
-                            <button onClick={() => handleDeleteRow(record.id)} className="text-[10px] text-red-600 font-black hover:underline">はい</button>
-                            <span className="text-gray-300 text-[9px]">|</span>
-                            <button onClick={() => setDeleteConfirmId(null)} className="text-[10px] text-gray-400 font-bold hover:underline">中断</button>
-                          </div>
+                          <span className="text-gray-300 select-none cursor-not-allowed" title="確認済みのデータは削除できません（一度確認を解除してください）">🔒</span>
                         ) : (
                           <button 
                             onClick={() => setDeleteConfirmId(record.id)}
                             className="text-gray-400 hover:text-red-500 p-1 rounded-md hover:bg-red-50 transition-all"
                             title="このレコードを削除する"
                           >
-                            <svg xmlns="http://www.w3.org/2000/xl" fill="none" viewBox="0 0 24 24" strokeWidth={2.2} stroke="currentColor" className="w-3.5 h-3.5 inline">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.2} stroke="currentColor" className="w-3.5 h-3.5 inline">
                               <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.34 6m-4.02 0l-.34-6M4.5 6.375a.5.5 0 01.5-.5h14a.5.5 0 01.5.5v1.5a.5.5 0 01-.5.5H5a.5.5 0 01-.5-.5v-1.5zM10.5 4.5a.5.5 0 01.5-.5h2a.5.5 0 01.5.5v1.375H10.5V4.5zm-5 4.125h13v11.25a2.25 2.25 0 01-2.25 2.25H7.75A2.25 2.25 0 015.5 19.875V8.625z" />
                             </svg>
                           </button>
                         )}
                       </td>
 
+                      {/* 💡 【大改造】確認状況セル。一度確認済みにした行も、もう一度ポチッと押すことで安全に戻せる仕様に変更 */}
                       <td className="py-2 text-center pr-3">
                         {record.verified ? (
-                          <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-0.5 rounded-xl font-extrabold shadow-sm inline-block select-none">
-                            ✅ 確認済み
-                          </span>
+                          <button
+                            onClick={() => handleToggleVerifyRow(record.id, true)}
+                            className="text-[10px] bg-emerald-50 hover:bg-amber-50 text-emerald-700 hover:text-amber-700 border border-emerald-200 hover:border-amber-300 px-2.5 py-0.5 rounded-xl font-extrabold shadow-sm inline-block transition-all group cursor-pointer"
+                            title="クリックすると未確認（戻す）状態に引き戻せます"
+                          >
+                            {/* 通常時は「確認済み」、マウスを乗せた時だけ「🔄 解除する」に変身するモダンUI仕様 */}
+                            <span className="group-hover:hidden">✅ 確認済み</span>
+                            <span className="hidden group-hover:inline">🔄 解除する</span>
+                          </button>
                         ) : (
                           <button
-                            onClick={() => handleVerifyRow(record.id)}
+                            onClick={() => handleToggleVerifyRow(record.id, false)}
                             disabled={record.endTime === "---"}
                             className="text-[10px] bg-white hover:bg-emerald-500 text-gray-500 hover:text-white border border-gray-200 hover:border-emerald-500 px-2.5 py-0.5 rounded-xl font-bold shadow-sm transition-all disabled:opacity-20 disabled:pointer-events-none"
                           >
@@ -274,7 +278,6 @@ export default function RecordsPage() {
           </div>
 
           <div className="pt-1">
-            {/* 👑 修正：末尾に混入していたゴミ文字(pile_verified)を完全に消去して綺麗に閉じました */}
             {isAllVerified ? (
               <div className="bg-emerald-50 text-emerald-700 font-extrabold py-2.5 px-6 rounded-xl text-xs inline-block border border-emerald-100 shadow-sm">
                 ✓ 今月分のすべての業務セクションの確認が完了しています！
@@ -288,6 +291,46 @@ export default function RecordsPage() {
           
         </div>
       </main>
+
+      {/* カスタム削除確認モーダル */}
+      {deleteConfirmId && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn">
+          <div className="bg-white rounded-3xl p-6 max-w-sm w-full mx-4 shadow-2xl border border-gray-100 text-center space-y-5 animate-scaleUp">
+            
+            <div className="w-12 h-12 mx-auto rounded-full bg-red-50 text-red-500 flex items-center justify-center">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-6 h-6">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+              </svg>
+            </div>
+
+            <div className="space-y-1">
+              <h4 className="text-base font-black text-gray-900 tracking-tight">打刻データの削除確認</h4>
+              <p className="text-sm font-bold text-gray-700">本当にこの業務記録を削除しますか？</p>
+              <p className="text-xs text-red-500 bg-red-50 p-2.5 rounded-xl border border-red-100 font-medium mt-2 leading-relaxed text-left">
+                ⚠️ 注意：この操作を実行すると、該当日の勤務時間および実働データが完全に削除され、復元できなくなります。
+              </p>
+            </div>
+
+            <div className="flex space-x-2.5 pt-1">
+              <button 
+                type="button"
+                onClick={() => setDeleteConfirmId(null)} 
+                className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-600 text-xs font-bold py-2.5 rounded-xl transition-all"
+              >
+                キャンセル
+              </button>
+              <button 
+                type="button"
+                onClick={() => handleDeleteRow(deleteConfirmId)} 
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white text-xs font-black py-2.5 rounded-xl shadow-sm transition-all shadow-red-100"
+              >
+                削除する
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

@@ -11,6 +11,8 @@ export default function DashboardPage() {
   const [isLoading, setIsLoading] = useState(true);
   
   const [userEmail, setUserEmail] = useState<string>("読み込み中...");
+  // 💡 【新設】ログインしたスタッフの本名を保管する部屋
+  const [userName, setUserName] = useState<string>("読み込み中...");
   const [userId, setUserId] = useState<string>("");
   const [userRole, setUserRole] = useState<"user" | "admin" | "owner">("user");
 
@@ -42,11 +44,18 @@ export default function DashboardPage() {
           setUserEmail(email);
           setUserId(session.memberId || "");
 
+          // 💡 【機能追加】データベースからログインユーザーの登録情報を直接取得して名前をセット
+          const memberMeta = await attendanceRepository.getMemberByEmail(email);
+          if (memberMeta && memberMeta.name) {
+            setUserName(memberMeta.name); // データベースに本名があればそれをセット
+          } else {
+            setUserName(email.split("@")[0]); // 万が一名前が空ならアドレスの前の部分を出す安心ガード
+          }
+
           // 👑 【仕様100%保持】西尾さんは最上位のowner
           if (email === "nishio@aidma-hd.jp") {
             setUserRole("owner");
           } else {
-            const memberMeta = await attendanceRepository.getMemberByEmail(email);
             // 👑 【仕様100%保持】もしowner代理(isOwnerProxy)に☑があれば最強のowner権限を付与
             if (memberMeta && memberMeta.isOwnerProxy) {
               setUserRole("owner");
@@ -99,7 +108,7 @@ export default function DashboardPage() {
       setStatusMessage("データを送信中...");
       const stampId = await attendanceRepository.saveStartRecord({
         userId: userId,
-        userName: userEmail.split("@")[0],
+        userName: userName, // 💡 メールの削り出しではなく、データベース上の正確な本名で打刻履歴に残るよう改良！
         email: userEmail,
         workDate: todayStr,
         startTime: timeStr,
@@ -108,6 +117,7 @@ export default function DashboardPage() {
 
       setCurrentStampId(stampId);
       setCurrentStartTimeStr(timeStr);
+      setWorkState("working");
       setWorkState("working");
       setStatusMessage("業務を開始しました！今日もがんばりましょう。");
       setTimeout(() => setStatusMessage(null), 4000);
@@ -196,7 +206,8 @@ export default function DashboardPage() {
           <p className="text-sm text-gray-400 font-medium">{formatDate(currentTime)}</p>
           <h2 className="text-5xl font-bold text-gray-800 tracking-wider tabular-nums">{formatTime(currentTime)}</h2>
           <div className="h-px w-16 bg-emerald-100 mx-auto my-2"></div>
-          <p className="text-xl font-semibold text-gray-700">{userEmail} さん、今日もありがとうございます</p>
+          {/* 💡 【差し替え】userEmail から、データベースから抜いてきた美しい userName へ変更！ */}
+          <p className="text-xl font-semibold text-gray-700">{userName} さん、今日もありがとうございます</p>
         </div>
 
         <div className="bg-white rounded-3xl p-8 shadow-sm border border-gray-100 text-center space-y-6">

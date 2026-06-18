@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { MemberInfo, AccountRequest, attendanceRepository } from "@/lib/attendanceRepository";
+// 💡 Next.jsの画面キープ用リフレッシュ機能（useRouter）をインポート
+import { useRouter } from "next/navigation";
 
 interface TabMembersProps {
   members: MemberInfo[];
@@ -25,6 +27,9 @@ export default function TabMembers({
   uniqueDepartments
 }: TabMembersProps) {
   
+  // 💡 useRouterを使えるように定義（現在のページ状態をキープするためのコントローラー）
+  const router = useRouter();
+
   // 👑 西尾さんにご提示いただいた11個の正しいマスターチーム
   const initialDepts = [
     "架電チーム",
@@ -112,7 +117,8 @@ export default function TabMembers({
       onConfirm: async () => {
         try {
           await attendanceRepository.updateMemberRole(member.email, targetRole);
-          window.location.reload();
+          // 💡 画面をキープしたまま、データだけを裏側で最新にする仕様に変更
+          router.refresh();
         } catch (e) {
           alert("権限の変更に失敗しました。");
         }
@@ -133,7 +139,8 @@ export default function TabMembers({
       onConfirm: async () => {
         try {
           await attendanceRepository.updateMemberOwnerProxy(member.email, isChecked);
-          window.location.reload();
+          // 💡 画面をキープしたまま、データだけを裏側で最新にする仕様に変更
+          router.refresh();
         } catch (e) {
           alert("オーナー代理権限の切り替えに失敗しました。");
         }
@@ -261,7 +268,7 @@ export default function TabMembers({
                     {loginEmailLabel}
                   </td>
                   
-                  {/* 所属部署セル：編集時は余計なボタンのない、純粋で綺麗なプルダウンのみを配置 */}
+                  {/* 所属部署セル */}
                   <td className="py-2.5">
                     {isEditing ? (
                       <select
@@ -380,8 +387,8 @@ export default function TabMembers({
             <div className="flex space-x-2.5 pt-1">
               <button 
                 onClick={() => {
+                  // 💡 キャンセル時は画面リロードせず、単にモーダルを優しく閉じるだけに修正！これでもう飛ばされません
                   setModalConfig(prev => ({ ...prev, isOpen: false }));
-                  window.location.reload();
                 }} 
                 className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-600 text-xs font-bold py-2.5 rounded-xl transition-all"
               >

@@ -24,7 +24,7 @@ export default function DashboardPage() {
   
   const [currentStartTimeStr, setCurrentStartTimeStr] = useState<string>("");
 
-  // 💡 【新設】オーナーが設定したカスタムメッセージを保管するステート
+  // オーナーが設定したカスタムメッセージを保管するステート
   const [customFooterMessage, setCustomFooterMessage] = useState<string>("");
 
   // ⏱️ 1秒ごとに時計を動かすタイマー
@@ -44,19 +44,42 @@ export default function DashboardPage() {
           setUserEmail(email);
           setUserId(session.memberId || "");
 
-          // データベースからログインユーザーの情報を取得
-          const memberMeta = await attendanceRepository.getMemberByEmail(email);
+          const now = new Date();
+          const todayStr = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, '0') + "-" + String(now.getDate()).padStart(2, '0');
+
+          // 💡 【大改造】Promise.all を使って、これまで数珠つなぎ（直列）だった3つの重い通信を一斉に同時スタート！
+          const [memberMeta, settings, latest] = await Promise.all([
+            attendanceRepository.getMemberByEmail(email),
+            attendanceRepository.getDashboardSettings(),
+            attendanceRepository.getTodayLatestRecord(email, todayStr)
+          ]);
+
+          // 1. メンバー名の設定
           if (memberMeta && memberMeta.name) {
             setUserName(memberMeta.name);
           } else {
             setUserName(email.split("@")[0]);
           }
 
-          // 💡 【機能追加】オーナー設定のカスタムメッセージを読み込む
-          const settings = await attendanceRepository.getDashboardSettings();
-          setCustomFooterMessage(settings.footerMessage);
+          // 2. オーナーカスタムメッセージの設定
+          if (settings && settings.footerMessage) {
+            setCustomFooterMessage(settings.footerMessage);
+          }
 
-          // 権限判定
+          // 3. 今日最新の打刻履歴の復元
+          if (latest) {
+            if (latest.endTime === "") {
+              setWorkState("working");
+              setCurrentStampId(latest.id);
+              setCurrentStartTimeStr(latest.startTime || "");
+            } else {
+              setWorkState("not_started");
+            }
+          } else {
+            setWorkState("not_started");
+          }
+
+          // 4. 権限判定（西尾さんは最上位のowner）
           if (email === "nishio@aidma-hd.jp") {
             setUserRole("owner");
           } else {
@@ -69,21 +92,6 @@ export default function DashboardPage() {
             }
           }
 
-          // 今日の最新の打刻履歴を復元
-          const now = new Date();
-          const todayStr = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, '0') + "-" + String(now.getDate()).padStart(2, '0');
-          const latest = await attendanceRepository.getTodayLatestRecord(email, todayStr);
-          if (latest) {
-            if (latest.endTime === "") {
-              setWorkState("working");
-              setCurrentStampId(latest.id);
-              setCurrentStartTimeStr(latest.startTime || "");
-            } else {
-              setWorkState("not_started");
-            }
-          } else {
-            setWorkState("not_started");
-          }
         } catch (error) {
           console.error("ログイン情報の読み込みに失敗しました:", error);
           router.push("/login");
@@ -209,7 +217,7 @@ export default function DashboardPage() {
           <p className="text-2xl font-extrabold text-gray-700">{userName} さん、今日もありがとうございます！</p>
         </div>
 
-        {/* 打刻ステータス ＆ 【巨大化】ボタンセクション */}
+        {/* 打刻ステータス ＆ ボタンセクション */}
         <div className="bg-white rounded-[40px] p-10 shadow-sm border border-gray-100 text-center space-y-8">
           <div className="flex flex-col items-center space-y-2">
             <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest">CURRENT STATUS</h3>
@@ -225,7 +233,6 @@ export default function DashboardPage() {
           )}
 
           <div className="flex flex-col sm:flex-row justify-center items-stretch space-y-4 sm:space-y-0 sm:space-x-6 max-w-2xl mx-auto">
-            {/* 💡 ボタンをさらに巨大化＆押しやすく改修 */}
             <button 
               onClick={handleStartWork} 
               disabled={workState === "working"} 
@@ -243,9 +250,8 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* 💡 【大改造】ポップな吹き出し風のカスタムメッセージエリア */}
+        {/* ポップな吹き出し風のカスタムメッセージエリア */}
         <div className="relative max-w-2xl mx-auto group">
-          {/* 吹き出しのしっぽ */}
           <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-6 h-6 bg-amber-400 rotate-45 rounded-sm"></div>
           
           <div className="relative bg-amber-400 text-amber-950 p-8 rounded-[35px] shadow-lg shadow-amber-100 text-center transform transition-transform group-hover:scale-[1.01]">

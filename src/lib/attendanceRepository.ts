@@ -522,5 +522,33 @@ export const attendanceRepository = {
     } catch (error) {
       return [];
     }
+  },
+
+  // 👑 【新設】ダッシュボードのカスタムメッセージを取得する（大きな箱の内側に移動しました）
+  getDashboardSettings: async () => {
+    try {
+      const docRef = doc(db, "settings", "dashboard");
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        return snap.data();
+      }
+      return { footerMessage: "今月予定していた業務がすべて終了しましたか？業務記録のページから業務記録の提出をお願いいたします！" };
+    } catch (error) {
+      return { footerMessage: "業務記録の提出をお願いいたします！" };
+    }
+  },
+
+  // 👑 【新設】ダッシュボードのカスタムメッセージを保存する（大きな箱の内側に移動しました）
+  saveDashboardSettings: async (message: string) => {
+    try {
+      const docRef = doc(db, "settings", "dashboard");
+      await setDoc(docRef, { 
+        footerMessage: message,
+        updatedAt: serverTimestamp() 
+      }, { merge: true });
+      return true;
+    } catch (error) {
+      throw error;
+    }
   }
 };

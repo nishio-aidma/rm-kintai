@@ -11,7 +11,6 @@ export default function DashboardPage() {
   const [isLoading, setIsLoading] = useState(true);
   
   const [userEmail, setUserEmail] = useState<string>("読み込み中...");
-  // 💡 【新設】ログインしたスタッフの本名を保管する部屋
   const [userName, setUserName] = useState<string>("読み込み中...");
   const [userId, setUserId] = useState<string>("");
   const [userRole, setUserRole] = useState<"user" | "admin" | "owner">("user");
@@ -25,16 +24,17 @@ export default function DashboardPage() {
   
   const [currentStartTimeStr, setCurrentStartTimeStr] = useState<string>("");
 
-  // ⏱️ 1秒ごとに時計を動かすタイマー仕様（100%完全保持）
+  // 💡 【新設】オーナーが設定したカスタムメッセージを保管するステート
+  const [customFooterMessage, setCustomFooterMessage] = useState<string>("");
+
+  // ⏱️ 1秒ごとに時計を動かすタイマー
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
 
-  // 👑 修正：Firebase公式の見張り番から、ローカルストレージの「合言葉チェック」へ変更してループを破壊
   useEffect(() => {
     const checkLoginAndLoadData = async () => {
-      // パソコン内のメモ帳からログイン証明書（合言葉）を取得
       const sessionStr = localStorage.getItem("session");
 
       if (sessionStr) {
@@ -44,19 +44,22 @@ export default function DashboardPage() {
           setUserEmail(email);
           setUserId(session.memberId || "");
 
-          // 💡 【機能追加】データベースからログインユーザーの登録情報を直接取得して名前をセット
+          // データベースからログインユーザーの情報を取得
           const memberMeta = await attendanceRepository.getMemberByEmail(email);
           if (memberMeta && memberMeta.name) {
-            setUserName(memberMeta.name); // データベースに本名があればそれをセット
+            setUserName(memberMeta.name);
           } else {
-            setUserName(email.split("@")[0]); // 万が一名前が空ならアドレスの前の部分を出す安心ガード
+            setUserName(email.split("@")[0]);
           }
 
-          // 👑 【仕様100%保持】西尾さんは最上位のowner
+          // 💡 【機能追加】オーナー設定のカスタムメッセージを読み込む
+          const settings = await attendanceRepository.getDashboardSettings();
+          setCustomFooterMessage(settings.footerMessage);
+
+          // 権限判定
           if (email === "nishio@aidma-hd.jp") {
             setUserRole("owner");
           } else {
-            // 👑 【仕様100%保持】もしowner代理(isOwnerProxy)に☑があれば最強のowner権限を付与
             if (memberMeta && memberMeta.isOwnerProxy) {
               setUserRole("owner");
             } else if (memberMeta && memberMeta.role === "admin") {
@@ -66,7 +69,7 @@ export default function DashboardPage() {
             }
           }
 
-          // 👑 【仕様100%保持】今日の最新の打刻履歴を自動で復元するロジック
+          // 今日の最新の打刻履歴を復元
           const now = new Date();
           const todayStr = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, '0') + "-" + String(now.getDate()).padStart(2, '0');
           const latest = await attendanceRepository.getTodayLatestRecord(email, todayStr);
@@ -88,7 +91,6 @@ export default function DashboardPage() {
           setIsLoading(false);
         }
       } else {
-        // メモ帳（合言葉）がなければ、未ログインと判断してログイン画面へ強制移動
         router.push("/login");
       }
     };
@@ -108,7 +110,7 @@ export default function DashboardPage() {
       setStatusMessage("データを送信中...");
       const stampId = await attendanceRepository.saveStartRecord({
         userId: userId,
-        userName: userName, // 💡 メールの削り出しではなく、データベース上の正確な本名で打刻履歴に残るよう改良！
+        userName: userName,
         email: userEmail,
         workDate: todayStr,
         startTime: timeStr,
@@ -117,7 +119,6 @@ export default function DashboardPage() {
 
       setCurrentStampId(stampId);
       setCurrentStartTimeStr(timeStr);
-      setWorkState("working");
       setWorkState("working");
       setStatusMessage("業務を開始しました！今日もがんばりましょう。");
       setTimeout(() => setStatusMessage(null), 4000);
@@ -137,8 +138,7 @@ export default function DashboardPage() {
         const totalWorkMinutes = (endH * 60 + endM) - (startH * 60 + startM);
 
         if (breakMinutesInput >= totalWorkMinutes && totalWorkMinutes > 0) {
-          // 👑 開発方針徹底：Windows標準の嫌な alert ポップアップを撤廃し、画面内の美しいエラー表示に統合
-          setStatusMessage(`⚠️ エラー：休憩時間（${breakMinutesInput}分）が実際の稼働時間（${totalWorkMinutes}分）以上になっています。正しい時間を選択してください。`);
+          setStatusMessage(`⚠️ エラー：休憩時間（${breakMinutesInput}分）が実際の稼働時間（${totalWorkMinutes}分）以上になっています。`);
           setShowEndModal(false);
           setTimeout(() => setStatusMessage(null), 6000);
           return;
@@ -172,86 +172,111 @@ export default function DashboardPage() {
     <div className="min-h-screen bg-gray-50 text-gray-800 font-sans">
       <header className="bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between shadow-sm">
         <div className="flex items-center space-x-3">
-          <span className="text-2xl font-bold text-gray-800 tracking-tight">あ～るえむ</span>
+          <span onClick={() => router.push("/")} className="text-2xl font-bold text-gray-800 tracking-tight cursor-pointer">あ～るえむ</span>
           <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${userRole === "owner" ? "bg-gray-800 text-white" : "bg-emerald-50 text-emerald-600"}`}>
             {userRole === "owner" ? "オーナー権限ログイン中" : "RM事業部 業務管理システム"}
           </span>
         </div>
         
-        <div className="flex items-center space-x-4 flex-shrink-0">
+        <div className="flex items-center space-x-4">
           {(userRole === "admin" || userRole === "owner") && (
-            <button onClick={() => router.push("/admin")} className="text-sm font-semibold text-gray-700 hover:text-gray-900 bg-gray-100 hover:bg-gray-200 px-4 py-2 rounded-xl transition-all whitespace-nowrap">
-              管理者画面（実績一覧）を開く
+            <button onClick={() => router.push("/admin")} className="text-xs font-bold text-gray-700 hover:text-gray-900 bg-gray-100 px-4 py-2 rounded-xl transition-all">
+              管理者画面を開く
             </button>
           )}
-          <button onClick={() => router.push("/records")} className="text-sm font-semibold text-emerald-500 hover:text-emerald-600 bg-emerald-50 hover:bg-emerald-100 px-4 py-2 rounded-xl transition-all whitespace-nowrap">
-            自分の業務記録を見る
+          <button onClick={() => router.push("/records")} className="text-xs font-bold text-emerald-500 bg-emerald-50 px-4 py-2 rounded-xl transition-all">
+            自分の記録
           </button>
-          {/* 👑 修正：ログアウト時にローカルストレージの古い合言葉のメモ帳もしっかり破棄する仕様に最適化 */}
           <button 
             onClick={async () => { 
               localStorage.removeItem("session"); 
               await auth.signOut(); 
               router.push("/login"); 
             }} 
-            className="text-sm text-gray-400 hover:text-red-500 transition-colors font-medium whitespace-nowrap"
+            className="text-xs text-gray-400 hover:text-red-500 font-medium"
           >
             ログアウト
           </button>
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-4 py-10 space-y-8">
-        <div className="bg-white rounded-3xl p-8 shadow-sm border border-gray-100 text-center space-y-4">
-          <p className="text-sm text-gray-400 font-medium">{formatDate(currentTime)}</p>
-          <h2 className="text-5xl font-bold text-gray-800 tracking-wider tabular-nums">{formatTime(currentTime)}</h2>
-          <div className="h-px w-16 bg-emerald-100 mx-auto my-2"></div>
-          {/* 💡 【差し替え】userEmail から、データベースから抜いてきた美しい userName へ変更！ */}
-          <p className="text-xl font-semibold text-gray-700">{userName} さん、今日もありがとうございます</p>
+      <main className="max-w-4xl mx-auto px-4 py-10 space-y-10">
+        {/* 時計・挨拶セクション */}
+        <div className="bg-white rounded-[40px] p-10 shadow-sm border border-gray-100 text-center space-y-4">
+          <p className="text-sm text-gray-400 font-bold uppercase tracking-widest">{formatDate(currentTime)}</p>
+          <h2 className="text-7xl font-black text-gray-800 tabular-nums tracking-tighter">{formatTime(currentTime)}</h2>
+          <div className="h-1.5 w-12 bg-emerald-400 mx-auto rounded-full my-4"></div>
+          <p className="text-2xl font-extrabold text-gray-700">{userName} さん、今日もありがとうございます！</p>
         </div>
 
-        <div className="bg-white rounded-3xl p-8 shadow-sm border border-gray-100 text-center space-y-6">
-          <h3 className="text-base font-medium text-gray-500">あなたの現在のステータス</h3>
-          <div className="inline-block">
+        {/* 打刻ステータス ＆ 【巨大化】ボタンセクション */}
+        <div className="bg-white rounded-[40px] p-10 shadow-sm border border-gray-100 text-center space-y-8">
+          <div className="flex flex-col items-center space-y-2">
+            <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest">CURRENT STATUS</h3>
             {workState === "working" ? (
-              <span className="bg-emerald-50 text-emerald-600 px-4 py-2 rounded-2xl text-sm font-semibold animate-pulse">稼働中</span>
+              <span className="bg-emerald-500 text-white px-6 py-2 rounded-full text-sm font-black animate-pulse shadow-lg shadow-emerald-100">稼働中</span>
             ) : (
-              <span className="bg-gray-100 text-gray-600 px-4 py-2 rounded-2xl text-sm font-semibold">開始前</span>
+              <span className="bg-gray-100 text-gray-400 px-6 py-2 rounded-full text-sm font-black">開始前</span>
             )}
           </div>
 
           {statusMessage && (
-            <div className="max-w-md mx-auto bg-emerald-50 text-emerald-800 border border-emerald-100 px-4 py-3 rounded-2xl text-sm font-medium animate-fadeIn">{statusMessage}</div>
+            <div className="max-w-md mx-auto bg-emerald-50 text-emerald-800 border-2 border-emerald-100 px-6 py-4 rounded-3xl text-sm font-bold animate-fadeIn">{statusMessage}</div>
           )}
 
-          <div className="flex justify-center space-x-4 max-w-md mx-auto">
-            <button onClick={handleStartWork} disabled={workState === "working"} className="flex-1 bg-emerald-400 hover:bg-emerald-500 text-white font-semibold py-4 rounded-2xl shadow-sm hover:shadow transition-all disabled:opacity-30">業務開始</button>
-            <button onClick={() => setShowEndModal(true)} disabled={workState !== "working"} className="flex-1 bg-gray-700 hover:bg-gray-800 text-white font-semibold py-4 rounded-2xl shadow-sm hover:shadow transition-all disabled:opacity-30">業務終了</button>
+          <div className="flex flex-col sm:flex-row justify-center items-stretch space-y-4 sm:space-y-0 sm:space-x-6 max-w-2xl mx-auto">
+            {/* 💡 ボタンをさらに巨大化＆押しやすく改修 */}
+            <button 
+              onClick={handleStartWork} 
+              disabled={workState === "working"} 
+              className="flex-1 bg-emerald-400 hover:bg-emerald-500 text-white font-black text-2xl py-10 rounded-[32px] shadow-xl shadow-emerald-100 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-20 disabled:grayscale disabled:scale-100"
+            >
+              🚀 業務開始
+            </button>
+            <button 
+              onClick={() => setShowEndModal(true)} 
+              disabled={workState !== "working"} 
+              className="flex-1 bg-gray-800 hover:bg-gray-900 text-white font-black text-2xl py-10 rounded-[32px] shadow-xl shadow-gray-200 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-20 disabled:scale-100"
+            >
+              🏁 業務終了
+            </button>
           </div>
         </div>
 
-        <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 text-center">
-          <p className="text-sm font-medium text-gray-600 leading-relaxed">
-            今月予定していた業務がすべて終了しましたか？業務記録のページから業務記録の提出をお願いいたします！
-          </p>
+        {/* 💡 【大改造】ポップな吹き出し風のカスタムメッセージエリア */}
+        <div className="relative max-w-2xl mx-auto group">
+          {/* 吹き出しのしっぽ */}
+          <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-6 h-6 bg-amber-400 rotate-45 rounded-sm"></div>
+          
+          <div className="relative bg-amber-400 text-amber-950 p-8 rounded-[35px] shadow-lg shadow-amber-100 text-center transform transition-transform group-hover:scale-[1.01]">
+            <div className="flex items-center justify-center space-x-2 mb-2">
+              <span className="text-2xl">📢</span>
+              <span className="text-[10px] font-black uppercase tracking-[0.2em] opacity-60">Message from Owner</span>
+            </div>
+            <p className="text-lg font-black leading-relaxed whitespace-pre-wrap">
+              {customFooterMessage || "今日も一日、よろしくお願いいたします！"}
+            </p>
+          </div>
         </div>
       </main>
 
+      {/* 業務終了モーダル */}
       {showEndModal && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn">
-          <div className="bg-white rounded-3xl p-8 max-w-sm w-full mx-4 shadow-xl border border-gray-100 text-center space-y-6">
-            <div>
-              <h4 className="text-lg font-bold text-gray-800">業務終了の確認</h4>
-              <p className="text-xs text-gray-400 mt-1">本日の休憩・中抜け時間を選択してください</p>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-50 animate-fadeIn">
+          <div className="bg-white rounded-[40px] p-10 max-w-sm w-full mx-4 shadow-2xl border border-gray-100 text-center space-y-8">
+            <div className="space-y-2">
+              <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto text-3xl">☕</div>
+              <h4 className="text-xl font-black text-gray-800">業務終了の確認</h4>
+              <p className="text-xs text-gray-400 font-bold">本日の休憩・中抜け時間を選択してください</p>
             </div>
 
-            <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
+            <div className="bg-gray-50 p-2 rounded-[25px] border-2 border-gray-100">
               <select 
                 value={breakMinutesInput}
                 onChange={(e) => setBreakMinutesInput(Number(e.target.value))}
-                className="w-full text-center text-base font-bold bg-white border border-gray-200 rounded-xl py-2.5 focus:outline-none focus:border-emerald-400 cursor-pointer text-gray-700"
+                className="w-full text-center text-xl font-black bg-transparent py-4 focus:outline-none cursor-pointer text-gray-700"
               >
-                <option value={0}>0分（休憩なし）</option>
+                <option value={0}>なし</option>
                 <option value={15}>15分</option>
                 <option value={30}>30分</option>
                 <option value={45}>45分</option>
@@ -259,19 +284,9 @@ export default function DashboardPage() {
               </select>
             </div>
 
-            <div className="flex space-x-3">
-              <button 
-                onClick={() => { setShowEndModal(false); setBreakMinutesInput(0); }}
-                className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-600 font-semibold py-3 rounded-xl text-sm transition-all"
-              >
-                キャンセル
-              </button>
-              <button 
-                onClick={handleEndWork}
-                className="flex-1 bg-emerald-400 hover:bg-emerald-50 text-white font-semibold py-3 rounded-xl text-sm transition-all shadow-sm"
-              >
-                確定して終了
-              </button>
+            <div className="flex space-x-4">
+              <button onClick={() => { setShowEndModal(false); setBreakMinutesInput(0); }} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-500 font-black py-4 rounded-[20px] text-sm transition-all">戻る</button>
+              <button onClick={handleEndWork} className="flex-1 bg-emerald-400 hover:bg-emerald-500 text-white font-black py-4 rounded-[20px] text-sm shadow-lg shadow-emerald-100 transition-all">確定</button>
             </div>
           </div>
         </div>

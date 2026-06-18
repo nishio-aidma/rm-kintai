@@ -63,7 +63,7 @@ export default function TabMembers({
       } else {
         const merged = Array.from(new Set([...initialDepts, ...uniqueDepartments])).filter(Boolean);
         setCustomDepts(merged);
-        localStorage.setItem("rm_custom_departments", JSON.stringify(merged)); merge
+        localStorage.setItem("rm_custom_departments", JSON.stringify(merged));
       }
     }
   }, [uniqueDepartments]);

@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react";
 import { MemberInfo, AccountRequest, attendanceRepository } from "@/lib/attendanceRepository";
-// 💡 Next.jsの画面キープ用リフレッシュ機能（useRouter）をインポート
 import { useRouter } from "next/navigation";
 
 interface TabMembersProps {
@@ -27,8 +26,11 @@ export default function TabMembers({
   uniqueDepartments
 }: TabMembersProps) {
   
-  // 💡 useRouterを使えるように定義（現在のページ状態をキープするためのコントローラー）
   const router = useRouter();
+
+  // 💡 【新設】ボタンを押した瞬間に、その場で権限の表示をパッと切り替えるための「一時記憶の部屋」
+  const [localRoles, setLocalRoles] = useState<{ [email: string]: string }>({});
+  const [localProxies, setLocalProxies] = useState<{ [email: string]: boolean }>({});
 
   // 👑 西尾さんにご提示いただいた11個の正しいマスターチーム
   const initialDepts = [
@@ -61,7 +63,7 @@ export default function TabMembers({
       } else {
         const merged = Array.from(new Set([...initialDepts, ...uniqueDepartments])).filter(Boolean);
         setCustomDepts(merged);
-        localStorage.setItem("rm_custom_departments", JSON.stringify(merged));
+        localStorage.setItem("rm_custom_departments", JSON.stringify(merged)); merge
       }
     }
   }, [uniqueDepartments]);
@@ -106,18 +108,22 @@ export default function TabMembers({
   });
 
   const toggleAdminRole = (member: MemberInfo) => {
-    const targetRole = member.role === "admin" ? "user" : "admin";
+    // 現在の一時記憶、または元のデータから現在の権限を割り出す
+    const currentRole = localRoles[member.email] || member.role;
+    const targetRole = currentRole === "admin" ? "user" : "admin";
+    
     setModalConfig({
       isOpen: true,
       title: "権限変更の確認",
       message: `${member.name} さんの権限を変更しますか？`,
-      subMessage: `【${member.role === "admin" ? "管理者 (admin)" : "一般ユーザー (user)"}】から【${targetRole === "admin" ? "管理者 (admin)" : "一般ユーザー (user)"}】に切り替わります。`,
+      subMessage: `【${currentRole === "admin" ? "管理者 (admin)" : "一般ユーザー (user)"}】から【${targetRole === "admin" ? "管理者 (admin)" : "一般ユーザー (user)"}】に切り替わります。`,
       confirmButtonText: "権限を切り替える",
       isDanger: targetRole === "user",
       onConfirm: async () => {
         try {
           await attendanceRepository.updateMemberRole(member.email, targetRole);
-          // 💡 画面をキープしたまま、データだけを裏側で最新にする仕様に変更
+          // 💡 成功したらその場で一時記憶を書き換えて、画面表示を即座に変更！
+          setLocalRoles(prev => ({ ...prev, [member.email]: targetRole }));
           router.refresh();
         } catch (e) {
           alert("権限の変更に失敗しました。");
@@ -139,7 +145,8 @@ export default function TabMembers({
       onConfirm: async () => {
         try {
           await attendanceRepository.updateMemberOwnerProxy(member.email, isChecked);
-          // 💡 画面をキープしたまま、データだけを裏側で最新にする仕様に変更
+          // 💡 成功したらその場でチェックボックスの状態を即座に変更！
+          setLocalProxies(prev => ({ ...prev, [member.email]: isChecked }));
           router.refresh();
         } catch (e) {
           alert("オーナー代理権限の切り替えに失敗しました。");
@@ -248,6 +255,10 @@ export default function TabMembers({
             {members.map((member) => {
               const isEditing = editingDeptEmail === member.email;
 
+              // 💡 一時記憶がある場合はそれを使い、無い場合はFirebaseから届いた初期値を使う
+              const currentRole = localRoles[member.email] || member.role;
+              const currentIsOwnerProxy = localProxies[member.email] !== undefined ? localProxies[member.email] : !!member.isOwnerProxy;
+
               // 🔑 初回ログインメール自動表示
               const loginEmailLabel = member.loginEmail ? (
                 <span className="text-[11px] bg-emerald-50 text-emerald-700 border border-emerald-100 px-1.5 py-0.5 rounded font-mono ml-2 inline-block">
@@ -331,19 +342,19 @@ export default function TabMembers({
                         <button
                           onClick={() => toggleAdminRole(member)}
                           className={`px-2 py-0.5 w-20 rounded font-black text-[10px] shadow-sm transition-all border ${
-                            member.role === "admin"
+                            currentRole === "admin"
                               ? "bg-purple-600 text-white border-purple-700 hover:bg-purple-700"
                               : "bg-gray-50 text-gray-400 border-gray-200 hover:border-purple-500 hover:text-purple-600"
                           }`}
                         >
-                          {member.role === "admin" ? "👑 admin" : "一般user"}
+                          {currentRole === "admin" ? "👑 admin" : "一般user"}
                         </button>
 
-                        {member.role === "admin" ? (
+                        {currentRole === "admin" ? (
                           <label className="flex items-center space-x-1 cursor-pointer text-purple-700 font-bold text-[11px] animate-fadeIn">
                             <input
                               type="checkbox"
-                              checked={!!member.isOwnerProxy}
+                              checked={currentIsOwnerProxy}
                               onChange={(e) => handleOwnerProxyCheckbox(member, e.target.checked)}
                               className="w-3.5 h-3.5 rounded border-purple-300 text-purple-600 focus:ring-purple-500 cursor-pointer"
                             />
@@ -387,7 +398,6 @@ export default function TabMembers({
             <div className="flex space-x-2.5 pt-1">
               <button 
                 onClick={() => {
-                  // 💡 キャンセル時は画面リロードせず、単にモーダルを優しく閉じるだけに修正！これでもう飛ばされません
                   setModalConfig(prev => ({ ...prev, isOpen: false }));
                 }} 
                 className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-600 text-xs font-bold py-2.5 rounded-xl transition-all"

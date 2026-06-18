@@ -9,6 +9,8 @@ import TabRecords from "./_components/TabRecords";
 import TabCsv from "./_components/TabCsv"; 
 import TabMembers from "./_components/TabMembers";
 import TabOrgChart from "./_components/TabOrgChart"; 
+// 💡 【大本命】新しく分割作成した TabSettings をここでインポート！
+import TabSettings from "./_components/TabSettings";
 import EditModal from "./_components/EditModal";
 
 interface AdminAttendanceRecord {
@@ -52,8 +54,8 @@ export default function AdminPage() {
   const [userRole, setUserRole] = useState<"admin" | "owner">("admin");
   const [myDepartment, setMyDepartment] = useState<string>("");
   
-  // 👑 組織図タブ「"org"」をメニューの選択肢に新設追加した仕様を100%保持
-  const [activeTab, setActiveTab] = useState<"summary" | "records" | "members" | "csv" | "org">("records");
+  // 👑 組織図タブ「"org"」に加えて、「"settings"」を公式メニューとして登録！
+  const [activeTab, setActiveTab] = useState<"summary" | "records" | "members" | "csv" | "org" | "settings">("records");
 
   const [attendanceRecords, setAttendanceRecords] = useState<AdminAttendanceRecord[]>([]);
   const [members, setMembers] = useState<MemberInfo[]>([]);
@@ -175,7 +177,6 @@ export default function AdminPage() {
       setTimeout(() => setStatusMessage(null), 3000);
       await loadAllData();
     } catch (error) {
-      // 👑 開発方針徹底：Windows標準の嫌な alert を画面内メッセージにアップグレード
       setStatusMessage("⚠️ エラー：チーム名の更新に失敗しました。");
       setTimeout(() => setStatusMessage(null), 4000);
     }
@@ -239,7 +240,6 @@ export default function AdminPage() {
       setTimeout(() => setStatusMessage(null), 3000);
       await loadAllData();
     } catch (error) {
-      // 👑 開発方針徹底：Windows標準の嫌な alert を画面内メッセージに統合
       setStatusMessage("⚠️ エラー：データの修正に失敗しました。");
       setTimeout(() => setStatusMessage(null), 4000);
     }
@@ -252,7 +252,6 @@ export default function AdminPage() {
       setTimeout(() => setStatusMessage(null), 3000);
       await loadAllData();
     } catch (error) {
-      // 👑 開発方針徹底：Windows標準の嫌な alert を画面内メッセージに統合
       setStatusMessage("⚠️ エラー：データの削除に失敗しました。");
       setTimeout(() => setStatusMessage(null), 4000);
     }
@@ -279,7 +278,6 @@ export default function AdminPage() {
           processCSVLines(text);
         }
       } catch (error) {
-        // 👑 開発方針徹底：Windows標準の嫌な alert を画面内メッセージに統合
         setStatusMessage("⚠️ エラー：インポート中にエラーが発生しました。");
         setTimeout(() => setStatusMessage(null), 4000);
       }
@@ -303,7 +301,6 @@ export default function AdminPage() {
     const idxCreatedAt = headers.findIndex(h => h === "作成日時");
 
     if (idxEmail === -1 || idxLastName === -1 || idxFirstName === -1) {
-      // 👑 開発方針徹底：Windows標準の嫌な alert を画面内メッセージに統合
       setStatusMessage("⚠️ エラー：CSVファイル内に必須列（メール・苗字・名前）が見つかりません。");
       setTimeout(() => setStatusMessage(null), 5000);
       return;
@@ -413,6 +410,12 @@ export default function AdminPage() {
             {userRole === "owner" && (
               <button onClick={() => setActiveTab("csv")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "csv" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
                 CSVインポート
+              </button>
+            )}
+            {/* 👑 西尾さん（owner）限定のメニュー設定タブボタン */}
+            {userRole === "owner" && (
+              <button onClick={() => setActiveTab("settings")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "settings" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
+                オーナー設定
               </button>
             )}
           </div>
@@ -542,6 +545,11 @@ export default function AdminPage() {
 
         {activeTab === "csv" && userRole === "owner" && (
           <TabCsv handleCSVUpload={handleCSVUpload} members={members} />
+        )}
+
+        {/* 👑 【大歓喜】分割した子コンポーネント TabSettings を呼び出す綺麗な記述！ */}
+        {activeTab === "settings" && userRole === "owner" && (
+          <TabSettings setStatusMessage={setStatusMessage} />
         )}
       </main>
 

@@ -8,10 +8,10 @@ import { attendanceRepository } from "@/lib/attendanceRepository";
 export default function DashboardPage() {
   const router = useRouter();
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [isLoading, setIsLoading] = useState(true);
   
-  const [userEmail, setUserEmail] = useState<string>("読み込み中...");
-  const [userName, setUserName] = useState<string>("読み込み中...");
+  // 💡 スピード改善：初期状態の「読み込み中...」を極力なくすため、空文字をデフォルトに
+  const [userEmail, setUserEmail] = useState<string>("");
+  const [userName, setUserName] = useState<string>("");
   const [userId, setUserId] = useState<string>("");
   const [userRole, setUserRole] = useState<"user" | "admin" | "owner">("user");
 
@@ -44,29 +44,36 @@ export default function DashboardPage() {
           setUserEmail(email);
           setUserId(session.memberId || "");
 
+          // 💡 【体感0秒化】前回までに保存されたキャッシュ（メモ）があれば、通信を待たずにその場で一瞬で表示！
+          if (session.cachedName) setUserName(session.userName || session.cachedName);
+          if (session.cachedRole) setUserRole(session.userRole || session.cachedRole);
+          if (session.cachedMessage) setCustomFooterMessage(session.customFooterMessage || session.cachedMessage);
+
           const now = new Date();
           const todayStr = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, '0') + "-" + String(now.getDate()).padStart(2, '0');
 
-          // 💡 【大改造】Promise.all を使って、これまで数珠つなぎ（直列）だった3つの重い通信を一斉に同時スタート！
+          // 裏側で静かにFirebaseへ最新データをよーいドン（並列）で確認しにいく
           const [memberMeta, settings, latest] = await Promise.all([
             attendanceRepository.getMemberByEmail(email),
             attendanceRepository.getDashboardSettings(),
             attendanceRepository.getTodayLatestRecord(email, todayStr)
           ]);
 
-          // 1. メンバー名の設定
+          // 最新の名前を反映
+          let finalName = email.split("@")[0];
           if (memberMeta && memberMeta.name) {
-            setUserName(memberMeta.name);
-          } else {
-            setUserName(email.split("@")[0]);
+            finalName = memberMeta.name;
           }
+          setUserName(finalName);
 
-          // 2. オーナーカスタムメッセージの設定
+          // 最新のオーナーメッセージを反映
+          let finalMessage = "";
           if (settings && settings.footerMessage) {
-            setCustomFooterMessage(settings.footerMessage);
+            finalMessage = settings.footerMessage;
+            setCustomFooterMessage(finalMessage);
           }
 
-          // 3. 今日最新の打刻履歴の復元
+          // 今日最新の打刻履歴の復元
           if (latest) {
             if (latest.endTime === "") {
               setWorkState("working");
@@ -79,24 +86,28 @@ export default function DashboardPage() {
             setWorkState("not_started");
           }
 
-          // 4. 権限判定（西尾さんは最上位のowner）
+          // 最新の権限を反映
+          let finalRole: "user" | "admin" | "owner" = "user";
           if (email === "nishio@aidma-hd.jp") {
-            setUserRole("owner");
+            finalRole = "owner";
           } else {
             if (memberMeta && memberMeta.isOwnerProxy) {
-              setUserRole("owner");
+              finalRole = "owner";
             } else if (memberMeta && memberMeta.role === "admin") {
-              setUserRole("admin");
-            } else {
-              setUserRole("user");
+              finalRole = "admin";
             }
           }
+          setUserRole(finalRole);
+
+          // 💡 次回から0秒で開くために、最新の取得データをメモ帳（キャッシュ）に新しく上書き保存する
+          session.cachedName = finalName;
+          session.cachedRole = finalRole;
+          session.cachedMessage = finalMessage;
+          localStorage.setItem("session", JSON.stringify(session));
 
         } catch (error) {
           console.error("ログイン情報の読み込みに失敗しました:", error);
           router.push("/login");
-        } finally {
-          setIsLoading(false);
         }
       } else {
         router.push("/login");
@@ -168,14 +179,7 @@ export default function DashboardPage() {
     }
   };
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <p className="text-sm text-gray-400 animate-pulse">権限を確認中...</p>
-      </div>
-    );
-  }
-
+  // 💡 スピード改善：フリーズ画面(isLoading)を完全に撤廃し、最初からメイン画面の枠組みを表示する
   return (
     <div className="min-h-screen bg-gray-50 text-gray-800 font-sans">
       <header className="bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between shadow-sm">
@@ -214,20 +218,13 @@ export default function DashboardPage() {
           <p className="text-sm text-gray-400 font-bold uppercase tracking-widest">{formatDate(currentTime)}</p>
           <h2 className="text-7xl font-black text-gray-800 tabular-nums tracking-tighter">{formatTime(currentTime)}</h2>
           <div className="h-1.5 w-12 bg-emerald-400 mx-auto rounded-full my-4"></div>
-          <p className="text-2xl font-extrabold text-gray-700">{userName} さん、今日もありがとうございます！</p>
+          <p className="text-2xl font-extrabold text-gray-700">
+            {userName ? `${userName} さん、今日もありがとうございます！` : "今日もありがとうございます！"}
+          </p>
         </div>
 
-        {/* 打刻ステータス ＆ ボタンセクション */}
-        <div className="bg-white rounded-[40px] p-10 shadow-sm border border-gray-100 text-center space-y-8">
-          <div className="flex flex-col items-center space-y-2">
-            <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest">CURRENT STATUS</h3>
-            {workState === "working" ? (
-              <span className="bg-emerald-500 text-white px-6 py-2 rounded-full text-sm font-black animate-pulse shadow-lg shadow-emerald-100">稼働中</span>
-            ) : (
-              <span className="bg-gray-100 text-gray-400 px-6 py-2 rounded-full text-sm font-black">開始前</span>
-            )}
-          </div>
-
+        {/* ボタンセクション 💡 「CURRENT STATUS」のバッジを削除し、驚くほどスッキリ押しやすく整え */}
+        <div className="bg-white rounded-[40px] p-10 shadow-sm border border-gray-100 text-center space-y-6">
           {statusMessage && (
             <div className="max-w-md mx-auto bg-emerald-50 text-emerald-800 border-2 border-emerald-100 px-6 py-4 rounded-3xl text-sm font-bold animate-fadeIn">{statusMessage}</div>
           )}

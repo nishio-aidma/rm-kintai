@@ -1,20 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
-
-interface MemberInfo {
-  id: string;
-  managementNumber: string;
-  lastName: string;
-  lastNameKana: string;
-  firstName: string;
-  firstNameKana: string;
-  email: string;
-  hourlyRate: number;
-  media?: string;
-  department?: string;
-  createdAtStr?: string;
-}
+// 💡 【修正】Firestoreから共通設定を直接読み書きするため、repositoryと公式関数を上部で静的インポート
+import { MemberInfo, attendanceRepository } from "@/lib/attendanceRepository";
+import { doc, setDoc } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 
 interface TabCsvProps {
   handleCSVUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
@@ -24,32 +14,44 @@ interface TabCsvProps {
 export default function TabCsv({ handleCSVUpload, members }: TabCsvProps) {
   const [searchTerm, setSearchTerm] = useState("");
   
-  // 👑 【新設】最終アップロード日時を記憶するローカルステート
+  // 最終アップロード日時を記憶するローカルステート
   const [lastUploadTime, setLastUploadTime] = useState<string>("---");
 
-  // 画面を開いた瞬間に、ブラウザの記憶（localStorage）から前回のアップロード日時を復元
+  // 💡 【仕様変更】画面を開いた瞬間に、個人PCのメモ帳ではなくFirestoreの共通設定から前回のインポート日時を回収
   useEffect(() => {
-    const savedTime = localStorage.getItem("last_csv_upload_time");
-    if (savedTime) {
-      setLastUploadTime(savedTime);
-    }
+    const loadImportTime = async () => {
+      try {
+        const settings = await attendanceRepository.getDashboardSettings();
+        if (settings && settings.lastCsvImportTime) {
+          setLastUploadTime(settings.lastCsvImportTime);
+        }
+      } catch (error) {
+        console.error("インポート日時の読み込みに失敗しました:", error);
+      }
+    };
+    loadImportTime();
   }, []);
 
-  // 👑 【新設】CSVファイルが選択された瞬間に、日時をブラウザにガッチリ刻む処理
-  const onFileChangeWithTimestamp = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // 💡 【仕様変更】CSVファイルが選択された瞬間に、全管理者で同期できるFirestoreへ日時をガッチリ刻む処理
+  const onFileChangeWithTimestamp = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files?.[0]) {
       const now = new Date();
       const timeStr = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}/${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
       
-      // ブラウザに永続記憶させ、画面の表示も更新
-      localStorage.setItem("last_csv_upload_time", timeStr);
-      setLastUploadTime(timeStr);
+      try {
+        // 💡 settings/dashboard ドキュメントに「lastCsvImportTime」としてマージ保存！
+        const docRef = doc(db, "settings", "dashboard");
+        await setDoc(docRef, { lastCsvImportTime: timeStr }, { merge: true });
+        setLastUploadTime(timeStr);
+      } catch (error) {
+        console.error("インポート日時の保存に失敗しました:", error);
+      }
     }
-    // 大元のインポート処理（Firestoreへのデータ流し込み）を実行
+    // 大元のインポート処理（Firestoreへのデータ流し込み）を実行（仕様保持）
     handleCSVUpload(e);
   };
 
-  // 検索フィルター
+  // 検索フィルター（仕様保持）
   const filteredMembers = members.filter(m => 
     m.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
     m.managementNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -73,7 +75,7 @@ export default function TabCsv({ handleCSVUpload, members }: TabCsvProps) {
             </p>
           </div>
           
-          {/* 👑 【新設】インポートエリアの右上に、最終アップロード日時をバッジ風に表示 */}
+          {/* 最終アップロード日時バッジ（デザイン保持） */}
           <div className="text-right">
             <span className="text-[10px] text-gray-400 block font-bold">最終インポート日時</span>
             <span className="text-xs font-mono font-black text-emerald-600 bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-lg inline-block mt-0.5 shadow-sm">
@@ -92,7 +94,6 @@ export default function TabCsv({ handleCSVUpload, members }: TabCsvProps) {
             <p className="text-xs font-bold text-gray-700 group-hover:text-emerald-600 transition-colors">クリックしてCSVファイルを選択</p>
             <p className="text-[10px] text-gray-400 mt-0.5">またはファイルをここに直接ドラッグ＆ドロップ</p>
           </div>
-          {/* 👑 タイムスタンプ処置を挟んだイベントへ変更 */}
           <input type="file" accept=".csv" onChange={onFileChangeWithTimestamp} className="hidden" />
         </label>
       </div>

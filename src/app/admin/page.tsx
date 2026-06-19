@@ -83,23 +83,21 @@ export default function AdminPage() {
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
 
-  // 💡 【新設】一般管理者(admin)に表示を許可するタブリスト（初期値はご要望通り所属チーム登録membersを抜いた3つ）
+  // 一般管理者(admin)に表示を許可するタブリスト（マスタから動的復元する仕様を保持）
   const [adminAllowedTabs, setAdminAllowedTabs] = useState<string[]>(["summary", "records", "org"]);
 
   const loadAllData = async () => {
     try {
-      // 💡 既存データと同時に、Firebaseから「adminのメニュー権限設定」も一括並列ロード
       const [allRecords, allMembers, allRequests, settings] = await Promise.all([
         attendanceRepository.getAllRecordsForAdmin(),
         attendanceRepository.getAllMembers(),
         attendanceRepository.getAccountRequests(),
-        attendanceRepository.getDashboardSettings() // ←設定を回収
+        attendanceRepository.getDashboardSettings()
       ]);
       setAttendanceRecords(allRecords);
       setMembers(allMembers);
       setAccountRequests(allRequests);
 
-      // オーナーが過去に設定を保存していれば、許可タブリストを上書き反映
       if (settings && settings.adminAllowedTabs) {
         setAdminAllowedTabs(settings.adminAllowedTabs);
       }
@@ -156,9 +154,11 @@ export default function AdminPage() {
     checkAdminAuth();
   }, [router]);
 
+  // 💡 【大改造】CSVへIDを出力させるため、membersマスタに格納されている本来の「id」も一緒に回収するよう拡張！
   const getMemberMeta = (email: string) => {
     const matched = members.find(m => m.email === email || m.loginEmail === email);
     return {
+      id: matched ? matched.id : "", // ←ここを追加！
       name: matched ? matched.name : email.split("@")[0],
       managementNumber: matched ? matched.managementNumber : "---",
       hourlyRate: matched ? matched.hourlyRate : 0,
@@ -191,6 +191,7 @@ export default function AdminPage() {
     }
   };
 
+  // 💡 【大改造】Excel報酬計算書CSVのエクスポート処理。空欄だったD列（4番目）に一撃紐付け！
   const handleExportRewardCSV = () => {
     if (userRole !== "owner") return;
 
@@ -219,7 +220,8 @@ export default function AdminPage() {
       const roundedHours = Math.round(data.hours * 100) / 100;
       const totalReward = Math.round(roundedHours * meta.hourlyRate);
       
-      return [noCounter++, `"RM"`, `"パートナー"`, `""`, `"${meta.managementNumber}"`, `"${meta.name}"`, totalReward, data.days.size, meta.hourlyRate, roundedHours, totalReward, 0, 0, 0, 0, `"${meta.department}"`].join(",");
+      // 💡 【修正】これまですっからかんの空文字 `""` だったインデックス3（4列目：ID）に、上記で拡張した `"${meta.id}"` をガチっとバインド！
+      return [noCounter++, `"RM"`, `"パートナー"`, `"${meta.id}"`, `"${meta.managementNumber}"`, `"${meta.name}"`, totalReward, data.days.size, meta.hourlyRate, roundedHours, totalReward, 0, 0, 0, 0, `"${meta.department}"`].join(",");
     });
 
     const csvContent = "\uFEFF" + [line1.join(","), line2.join(","), headers.join(","), ...rows].join("\n");
@@ -402,7 +404,6 @@ export default function AdminPage() {
           </div>
 
           <div className="flex space-x-2 border-l border-gray-200 pl-6 text-sm font-bold">
-            {/* 💡 【カスタム機能統合】ownerは全表示、admin（チームリーダー）はオーナーが許可したタブだけを動的に出現させる */}
             {(userRole === "owner" || (userRole === "admin" && adminAllowedTabs.includes("summary"))) && (
               <button onClick={() => setActiveTab("summary")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "summary" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
                 稼働実績
@@ -537,7 +538,6 @@ export default function AdminPage() {
           />
         )}
         
-        {/* 💡 【安全ガード】メイン表示部分のタブ出し分けも、許可リストに基づいてガッチリ保護 */}
         {activeTab === "members" && (userRole === "owner" || (userRole === "admin" && adminAllowedTabs.includes("members"))) && (
           <TabMembers 
             members={filteredMembers} 
@@ -559,11 +559,11 @@ export default function AdminPage() {
           />
         )}
 
-        {activeTab === "csv" && userRole === "owner" && (
+        {userRole === "owner" && activeTab === "csv" && (
           <TabCsv handleCSVUpload={handleCSVUpload} members={members} />
         )}
 
-        {activeTab === "settings" && userRole === "owner" && (
+        {userRole === "owner" && activeTab === "settings" && (
           <TabSettings setStatusMessage={setStatusMessage} loadAllParentData={loadAllData} />
         )}
       </main>

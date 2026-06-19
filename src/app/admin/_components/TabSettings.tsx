@@ -2,7 +2,10 @@
 
 import { useState, useEffect } from "react";
 import { attendanceRepository } from "@/lib/attendanceRepository";
-// 💡 親から直接一括ロードさせるための関数をプロップスに追加
+// 💡 【修正】関数内の不安定な require を廃止し、上部で完全に安全な静的インポートに切り替え
+import { doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { db } from "@/lib/firebase";
+
 interface TabSettingsProps {
   setStatusMessage: (msg: string | null) => void;
   loadAllParentData: () => Promise<void>;
@@ -12,7 +15,7 @@ export default function TabSettings({ setStatusMessage, loadAllParentData }: Tab
   const [footerMessageInput, setFooterMessageInput] = useState<string>("");
   const [isSavingSettings, setIsSavingSettings] = useState<boolean>(false);
 
-  // 💡 【大新設】一般管理者(admin)に表示させるメニューをON/OFFするためのチェック配列ステート
+  // 一般管理者(admin)に表示させるメニューをON/OFFするためのチェック配列ステート（仕様保持）
   const [adminAllowedTabs, setAdminAllowedTabs] = useState<string[]>(["summary", "records", "org"]);
 
   // 画面を開いた瞬間に、現在のメッセージとadmin用許可タブ設定をFirebaseから同時回収
@@ -24,7 +27,6 @@ export default function TabSettings({ setStatusMessage, loadAllParentData }: Tab
           if (settings.footerMessage) {
             setFooterMessageInput(settings.footerMessage);
           }
-          // 過去にオーナーが設定したカスタムタブ配列があればセット（無ければ初期値）
           if (settings.adminAllowedTabs) {
             setAdminAllowedTabs(settings.adminAllowedTabs);
           }
@@ -36,27 +38,21 @@ export default function TabSettings({ setStatusMessage, loadAllParentData }: Tab
     loadSettings();
   }, []);
 
-  // 💡 【新設】チェックボックスをポチッと押したときに、配列の中に文字を出し入れするトグル処理
   const handleCheckboxChange = (tabName: string) => {
     if (adminAllowedTabs.includes(tabName)) {
-      // すでに存在していれば、配列から削除（非表示へ）
       setAdminAllowedTabs(adminAllowedTabs.filter((t) => tabName !== t));
     } else {
-      // 存在していなければ、配列に追加（表示へ）
       setAdminAllowedTabs([...adminAllowedTabs, tabName]);
     }
   };
 
+  // 💡 安全なインポートを適用してスッキリと高速化した保存関数
   const handleSaveSettings = async () => {
     setIsSavingSettings(true);
     try {
       setStatusMessage("ダッシュボード設定を更新中...");
       
-      // 💡 リポジトリの既存関数「saveDashboardSettings」をフル活用！
-      // 第一引数にメッセージ、第二引数（またはmergeオブジェクト）として、カスタムタブ配列も一緒にFirestoreの settings/dashboard へ永久保存！
-      const { doc, setDoc, serverTimestamp } = require("firebase/firestore");
-      const { db } = require("@/lib/firebase");
-      
+      // 💡 上部で綺麗にインポートしたため、エラーを起こさず爆速でFirestoreへ書き込みが走ります
       const docRef = doc(db, "settings", "dashboard");
       await setDoc(docRef, { 
         footerMessage: footerMessageInput,
@@ -70,6 +66,7 @@ export default function TabSettings({ setStatusMessage, loadAllParentData }: Tab
       // 親ファイルの権限状態も即座に再同期させる
       await loadAllParentData();
     } catch (error) {
+      console.error("設定の保存エラー:", error);
       setStatusMessage("⚠️ エラー：設定の保存に失敗しました。");
       setTimeout(() => setStatusMessage(null), 4000);
     } finally {
@@ -80,7 +77,7 @@ export default function TabSettings({ setStatusMessage, loadAllParentData }: Tab
   return (
     <div className="space-y-4 animate-fadeIn text-slate-800">
       
-      {/* 💡 【大新設】オーナー設定の一番目立つメインパーツとして「admin表示メニューのカスタム」を大降臨！ */}
+      {/* 一般管理者(admin)のメニュー表示カスタム */}
       <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-4">
         <div>
           <h3 className="text-base font-extrabold text-gray-800 tracking-tight">🛠️ 一般管理者(admin)のメニュー表示カスタム</h3>
@@ -148,7 +145,7 @@ export default function TabSettings({ setStatusMessage, loadAllParentData }: Tab
         </div>
       </div>
 
-      {/* 下部の掲示板メッセージ編集（これまでの仕様を完全保持） */}
+      {/* 下部の掲示板メッセージ編集 */}
       <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-4">
         <div>
           <h3 className="text-base font-extrabold text-gray-800 tracking-tight">📢 メイン打刻画面の掲示板メッセージ編集</h3>

@@ -83,22 +83,32 @@ export default function AdminPage() {
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
 
+  // 💡 【新設】一般管理者(admin)に表示を許可するタブリスト（初期値はご要望通り所属チーム登録membersを抜いた3つ）
+  const [adminAllowedTabs, setAdminAllowedTabs] = useState<string[]>(["summary", "records", "org"]);
+
   const loadAllData = async () => {
     try {
-      const [allRecords, allMembers, allRequests] = await Promise.all([
+      // 💡 既存データと同時に、Firebaseから「adminのメニュー権限設定」も一括並列ロード
+      const [allRecords, allMembers, allRequests, settings] = await Promise.all([
         attendanceRepository.getAllRecordsForAdmin(),
         attendanceRepository.getAllMembers(),
-        attendanceRepository.getAccountRequests()
+        attendanceRepository.getAccountRequests(),
+        attendanceRepository.getDashboardSettings() // ←設定を回収
       ]);
       setAttendanceRecords(allRecords);
       setMembers(allMembers);
       setAccountRequests(allRequests);
+
+      // オーナーが過去に設定を保存していれば、許可タブリストを上書き反映
+      if (settings && settings.adminAllowedTabs) {
+        setAdminAllowedTabs(settings.adminAllowedTabs);
+      }
     } catch (error) {
       console.error("データの読み込みに失敗しました:", error);
     }
   };
 
-  // 👑 修正：Firebaseの公式見張り番から、最新の「パソコンのメモ帳（合言葉）」を読み込む仕様に完全統合
+  // 👑 最新の「パソコンのメモ帳（合言葉）」を読み込むログイン死守仕様（完全保持）
   useEffect(() => {
     const checkAdminAuth = async () => {
       const sessionStr = localStorage.getItem("session");
@@ -109,13 +119,13 @@ export default function AdminPage() {
           const email = session.email || "";
           setAdminEmail(email);
 
-          // 👑 【仕様100%保持】西尾さんは最上位のowner
+          // 👑 西尾さんは最上位のowner仕様（完全保持）
           if (email === "nishio@aidma-hd.jp") {
             setUserRole("owner");
             setActiveTab("summary");
           } else {
             const meta = await attendanceRepository.getMemberByEmail(email);
-            // 👑 【仕様100%保持】もしowner代理(isOwnerProxy)に☑があれば最強のowner権限を付与
+            // 👑 owner代理フラグ仕様（完全保持）
             if (meta && meta.isOwnerProxy) {
               setUserRole("owner");
               setActiveTab("summary");
@@ -123,17 +133,14 @@ export default function AdminPage() {
               setUserRole("admin");
               const deptStr = meta.department || "";
               setMyDepartment(deptStr);
-              // 💡 【機能追加】adminの場合は、集計時の初期選択チームを全員(all)ではなく「自チーム名」に自動設定
               setFilterDepartment(deptStr);
               setActiveTab("records");
             } else {
-              // 管理者権限のない一般ユーザーは安全にトップ画面へ戻す
               router.push("/");
               return;
             }
           }
 
-          // 権限確認が取れたら、管理データをFirestoreから一括取得
           await loadAllData();
         } catch (error) {
           console.error("管理者データの読み込みに失敗しました:", error);
@@ -142,7 +149,6 @@ export default function AdminPage() {
           setIsLoading(false);
         }
       } else {
-        // ログインの合言葉がなければ、ログイン画面へ移動
         router.push("/login");
       }
     };
@@ -396,27 +402,32 @@ export default function AdminPage() {
           </div>
 
           <div className="flex space-x-2 border-l border-gray-200 pl-6 text-sm font-bold">
-            {/* 💡 【解放】これまではowner限定だった「稼働実績」ボタンを、admin（チームリーダー）にも表示！ */}
-            {(userRole === "owner" || userRole === "admin") && (
+            {/* 💡 【カスタム機能統合】ownerは全表示、admin（チームリーダー）はオーナーが許可したタブだけを動的に出現させる */}
+            {(userRole === "owner" || (userRole === "admin" && adminAllowedTabs.includes("summary"))) && (
               <button onClick={() => setActiveTab("summary")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "summary" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
                 稼働実績
               </button>
             )}
-            <button onClick={() => setActiveTab("records")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "records" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
-              稼働記録
-            </button>
-            <button onClick={() => setActiveTab("members")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "members" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
-              所属チーム登録
-            </button>
-            <button onClick={() => setActiveTab("org")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "org" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
-               組織図
-            </button>
+            {(userRole === "owner" || (userRole === "admin" && adminAllowedTabs.includes("records"))) && (
+              <button onClick={() => setActiveTab("records")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "records" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
+                稼働記録
+              </button>
+            )}
+            {(userRole === "owner" || (userRole === "admin" && adminAllowedTabs.includes("members"))) && (
+              <button onClick={() => setActiveTab("members")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "members" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
+                所属チーム登録
+              </button>
+            )}
+            {(userRole === "owner" || (userRole === "admin" && adminAllowedTabs.includes("org"))) && (
+              <button onClick={() => setActiveTab("org")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "org" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
+                 組織図
+              </button>
+            )}
             {userRole === "owner" && (
               <button onClick={() => setActiveTab("csv")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "csv" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
                 CSVインポート
               </button>
             )}
-            {/* 👑 西尾さん（owner）限定のメニュー設定タブボタン（仕様保持） */}
             {userRole === "owner" && (
               <button onClick={() => setActiveTab("settings")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "settings" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
                 オーナー設定
@@ -444,7 +455,6 @@ export default function AdminPage() {
                 </select>
               </div>
 
-              {/* 💡 【解放】集計用フィルターエリアの出現条件も admin にまで拡張 */}
               {activeTab === "summary" && (userRole === "owner" || userRole === "admin") && (
                 <>
                   <div className="bg-gray-100 p-0.5 rounded-xl inline-flex border border-gray-200 shadow-inner border-l ml-2">
@@ -502,7 +512,6 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* 💡 【ガチガチのセキュリティ制限】adminが閲覧する際は、流出を防ぐためデータを自チーム(filteredAttendanceRecords / filteredMembers)に内部で完全自動制限！ */}
         {activeTab === "summary" && (userRole === "owner" || userRole === "admin") && (
           <TabSummary 
             attendanceRecords={filteredAttendanceRecords} 
@@ -528,7 +537,8 @@ export default function AdminPage() {
           />
         )}
         
-        {activeTab === "members" && (
+        {/* 💡 【安全ガード】メイン表示部分のタブ出し分けも、許可リストに基づいてガッチリ保護 */}
+        {activeTab === "members" && (userRole === "owner" || (userRole === "admin" && adminAllowedTabs.includes("members"))) && (
           <TabMembers 
             members={filteredMembers} 
             editingDeptEmail={editingDeptEmail} 
@@ -542,7 +552,7 @@ export default function AdminPage() {
           />
         )}
 
-        {activeTab === "org" && (
+        {activeTab === "org" && (userRole === "owner" || (userRole === "admin" && adminAllowedTabs.includes("org"))) && (
           <TabOrgChart 
             members={filteredMembers}
             uniqueDepartments={uniqueDepartments}
@@ -553,9 +563,8 @@ export default function AdminPage() {
           <TabCsv handleCSVUpload={handleCSVUpload} members={members} />
         )}
 
-        {/* 分割した子コンポーネント TabSettings を呼び出す仕様（完全保持） */}
         {activeTab === "settings" && userRole === "owner" && (
-          <TabSettings setStatusMessage={setStatusMessage} />
+          <TabSettings setStatusMessage={setStatusMessage} loadAllParentData={loadAllData} />
         )}
       </main>
 

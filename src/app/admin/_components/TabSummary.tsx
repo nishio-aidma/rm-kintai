@@ -126,9 +126,9 @@ export default function TabSummary({
   allPossibleDepts.forEach(dept => {
     const exactMemberCount = members.filter((m: any) => {
       const mDept = m.department || "未設定";
-      const isBelong = mDept === dept; // 本来の所属チームが一致
-      const isLeader = m.leadingTeams?.includes(dept); // そのチームのリーダーである
-      const isBelongToOther = m.department && m.department !== dept; // 別のチームに所属している
+      const isBelong = mDept === dept;
+      const isLeader = m.leadingTeams?.includes(dept);
+      const isBelongToOther = m.department && m.department !== dept;
       
       return isBelong || (isLeader && !isBelongToOther);
     }).length;
@@ -156,16 +156,15 @@ export default function TabSummary({
     const totalSessions = userRecords.filter(r => r.endTime && r.endTime !== "---").length;
     const totalReward = Math.round(roundedHours * meta.hourlyRate);
 
-    // このメンバー自身の提出状態
     const isSubmitted = userRecords.length > 0 && userRecords.some(r => r.submitted);
 
     if (!departmentSummaries[deptName]) {
       departmentSummaries[deptName] = { memberCount: 0, totalDays: 0, totalSessions: 0, totalHours: 0, totalReward: 0, hasUnsubmitted: false, hasAttendance: false };
     }
     
-    departmentSummaries[deptName].hasAttendance = true; // 稼働実績あり
+    departmentSummaries[deptName].hasAttendance = true;
     if (!isSubmitted) {
-      departmentSummaries[deptName].hasUnsubmitted = true; // チーム内に未提出者を発見
+      departmentSummaries[deptName].hasUnsubmitted = true;
     }
 
     departmentSummaries[deptName].totalDays += totalDays;
@@ -174,7 +173,6 @@ export default function TabSummary({
     departmentSummaries[deptName].totalReward += totalReward;
   });
 
-  // フィルターがかかっている場合は、そのチームだけを表示対象にする
   const filteredDeptKeys = allPossibleDepts.filter(dept => {
     if (filterDepartment !== "all" && dept !== filterDepartment) return false;
     const data = departmentSummaries[dept];
@@ -299,33 +297,33 @@ export default function TabSummary({
         </div>
       </div>
 
+      {/* 💡 【超大改造】横スクロールを完全に排除。全体を引き伸ばし（w-full）、％比率で等間隔に配置 */}
       {viewMode === "user" ? (
         displayedEmails.length === 0 ? (
           <p className="text-center text-gray-400 py-10 font-medium">該当する提出状態・所属チームのメンバーはいません。</p>
         ) : (
-          <div className="overflow-x-auto border border-gray-100 rounded-xl shadow-sm">
-            {/* 💡 table-fixedを適用し、インラインCSSを使わず確実なピクセル幅で列幅を100%固定 */}
-            <table className="w-full text-left border-collapse table-fixed min-w-[1280px]">
+          <div className="overflow-hidden border border-gray-100 rounded-xl">
+            <table className="w-full text-left border-collapse table-fixed">
               <thead>
-                <tr className="border-b border-gray-100 text-gray-400 font-bold bg-gray-50/50 text-[11px] uppercase tracking-wider h-12">
-                  <th className="w-20 text-center px-3 py-3">
+                <tr className="border-b border-gray-100 text-gray-400 font-bold bg-gray-50/50 text-[11px] uppercase tracking-wider">
+                  {/* 💡 権限（ログイン状態）に合わせて、全列の間隔が1ミリも狂わず等間隔になるようインライン％幅を動的コントロール */}
+                  <th className="text-center px-3 py-2.5" style={{ width: "6%" }}>
                     <button 
                       onClick={handleSelectAll}
-                      className="bg-white border border-gray-300 hover:border-emerald-500 text-gray-700 rounded-md px-2 py-0.5 font-bold text-[10px] shadow-sm transition-all whitespace-nowrap cursor-pointer"
+                      className="bg-white border border-gray-300 hover:border-emerald-500 text-gray-700 rounded-md px-1.5 py-0.5 font-bold text-[10px] shadow-sm transition-all whitespace-nowrap cursor-pointer"
                     >
                       {selectedEmails.length === displayedEmails.length ? "全解除" : "全選択"}
                     </button>
                   </th>
-                  <th className="w-28 text-center px-3 py-3">状態</th>
-                  <th className="w-28 px-3 py-3">管理番号</th>
-                  <th className="w-36 px-3 py-3">氏名 (メンバー名)</th>
-                  <th className="w-68 px-3 py-3">メールアドレス</th>
-                  <th className="w-36 px-3 py-3">所属チーム</th>
-                  <th className="w-24 text-center px-3 py-3">出勤日数</th>
-                  <th className="w-24 text-center px-3 py-3">出勤回数</th>
-                  <th className="w-26 text-right px-3 py-3">勤務時間</th>
-                  {currentUserRole === "owner" && <th className="w-26 text-right px-3 py-3">設定時給</th>}
-                  {currentUserRole === "owner" && <th className="w-36 text-right pr-6 text-emerald-600">報酬額（税抜）</th>}
+                  <th className="text-center px-3 py-2.5" style={{ width: currentUserRole === "owner" ? "10%" : "12%" }}>状態</th>
+                  <th className="px-3 py-2.5" style={{ width: currentUserRole === "owner" ? "11%" : "14%" }}>管理番号</th>
+                  <th className="px-3 py-2.5" style={{ width: currentUserRole === "owner" ? "15%" : "22%" }}>氏名 (メンバー名)</th>
+                  <th className="px-3 py-2.5" style={{ width: currentUserRole === "owner" ? "16%" : "22%" }}>所属チーム</th>
+                  <th className="text-center px-3 py-2.5" style={{ width: currentUserRole === "owner" ? "9%" : "10%" }}>出勤日数</th>
+                  <th className="text-center px-3 py-2.5" style={{ width: currentUserRole === "owner" ? "9%" : "10%" }}>出勤回数</th>
+                  <th className="text-right px-3 py-2.5" style={{ width: currentUserRole === "owner" ? "10%" : "10%" }}>勤務時間</th>
+                  {currentUserRole === "owner" && <th className="text-right px-3 py-2.5" style={{ width: "11%" }}>設定時給</th>}
+                  {currentUserRole === "owner" && <th className="text-right pr-4 text-emerald-600" style={{ width: "13%" }}>報酬額（税抜）</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50 text-gray-600 font-medium text-xs">
@@ -342,8 +340,8 @@ export default function TabSummary({
                   const isChecked = selectedEmails.includes(email);
 
                   return (
-                    <tr key={email} className={`transition-colors h-14 ${isChecked ? "bg-emerald-50/20 hover:bg-emerald-50/30" : "hover:bg-gray-50/30"}`}>
-                      <td className="text-center px-3 py-3">
+                    <tr key={email} className={`transition-colors ${isChecked ? "bg-emerald-50/20 hover:bg-emerald-50/30" : "hover:bg-gray-50/30"}`}>
+                      <td className="text-center px-3 py-2.5">
                         <input 
                           type="checkbox" 
                           checked={isChecked}
@@ -351,26 +349,26 @@ export default function TabSummary({
                           className="w-4 h-4 rounded border-gray-300 text-emerald-500 focus:ring-emerald-400 cursor-pointer transition-all"
                         />
                       </td>
-                      <td className="text-center px-3 py-3">
+                      <td className="text-center px-3 py-2.5">
                         {isSubmitted ? (
-                          <span className="text-[11px] text-emerald-600 font-black tracking-tight bg-emerald-50 border border-emerald-100 px-2 py-1 rounded-md">☑️ 提出済</span>
+                          <span className="text-[10px] text-emerald-600 font-black tracking-tight bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded-md">提出済</span>
                         ) : (
-                          <span className="text-[11px] text-amber-500 font-bold tracking-tight bg-amber-50 border border-amber-100 px-2 py-1 rounded-md">⏳ 未提出</span>
+                          <span className="text-[10px] text-amber-500 font-bold tracking-tight bg-amber-50 border border-amber-100 px-1.5 py-0.5 rounded-md">未提出</span>
                         )}
                       </td>
-                      <td className="tabular-nums text-gray-400 px-3 py-3">{meta.managementNumber}</td>
-                      <td className="font-bold text-gray-900 px-3 py-3 truncate" title={meta.name}>{meta.name}</td>
-                      <td className="text-gray-400 tabular-nums px-3 py-3 truncate" title={email}>{email}</td>
-                      <td className="px-3 py-3 truncate">
-                        <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded font-bold text-[11px] inline-block truncate max-w-full" title={meta.department}>
+                      <td className="tabular-nums text-gray-400 px-3 py-2.5">{meta.managementNumber}</td>
+                      <td className="font-bold text-gray-900 px-3 py-2.5 truncate" title={meta.name}>{meta.name}</td>
+                      {/* 💡 メールアドレス列の td の記述をバッサリ完全削除！ */}
+                      <td className="px-3 py-2.5 truncate">
+                        <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded font-bold text-[10px] inline-block truncate max-w-full" title={meta.department}>
                           {meta.department}
                         </span>
                       </td>
-                      <td className="text-center tabular-nums px-3 py-3 text-gray-700">{totalDays} 日</td>
-                      <td className="text-center tabular-nums font-bold text-purple-600 px-3 py-3">{totalSessions} 回</td>
-                      <td className="text-right tabular-nums px-3 py-3 text-gray-800 font-semibold">{roundedHours} 時間</td>
-                      {currentUserRole === "owner" && <td className="text-right tabular-nums px-3 py-3 text-gray-700">¥{meta.hourlyRate.toLocaleString()}</td>}
-                      {currentUserRole === "owner" && <td className="text-right pr-6 tabular-nums font-black text-emerald-600 text-sm">¥{totalReward.toLocaleString()}</td>}
+                      <td className="text-center tabular-nums px-3 py-2.5 text-gray-700">{totalDays} 日</td>
+                      <td className="text-center tabular-nums font-bold text-purple-600 px-3 py-2.5">{totalSessions} 回</td>
+                      <td className="text-right tabular-nums px-3 py-2.5 text-gray-800 font-semibold">{roundedHours} 時間</td>
+                      {currentUserRole === "owner" && <td className="text-right tabular-nums px-3 py-2.5">¥{meta.hourlyRate.toLocaleString()}</td>}
+                      {currentUserRole === "owner" && <td className="text-right pr-4 tabular-nums font-black text-emerald-600 text-sm">¥{totalReward.toLocaleString()}</td>}
                     </tr>
                   );
                 })}
@@ -383,17 +381,17 @@ export default function TabSummary({
         filteredDeptKeys.length === 0 ? (
           <p className="text-center text-gray-400 py-10 font-medium">該当する所属チームはありません。</p>
         ) : (
-          <div className="overflow-x-auto border border-gray-100 rounded-xl shadow-sm">
-            <table className="w-full text-left border-collapse table-fixed min-w-[1020px]">
+          <div className="overflow-hidden border border-gray-100 rounded-xl shadow-sm">
+            <table className="w-full text-left border-collapse table-fixed">
               <thead>
-                <tr className="border-b border-gray-100 text-gray-400 font-bold bg-gray-50/50 text-[11px] uppercase tracking-wider h-12">
-                  <th className="w-52 pl-6 py-3">所属チーム名</th>
-                  <th className="w-32 text-center py-3">状態</th>
-                  <th className="w-32 text-center py-3">対象稼働人数</th>
-                  <th className="w-32 text-center py-3">チーム総出勤日数</th>
-                  <th className="w-32 text-center py-3">チーム総出勤回数</th>
-                  <th className="w-36 text-right py-3">チーム総勤務時間</th>
-                  {currentUserRole === "owner" && <th className="w-44 text-right pr-6 text-emerald-600 font-extrabold">チーム総報酬額（税抜）</th>}
+                <tr className="border-b border-gray-100 text-gray-400 font-bold bg-gray-50/50 text-[11px] uppercase tracking-wider">
+                  <th className="pl-6 py-2.5 text-left" style={{ width: currentUserRole === "owner" ? "25%" : "35%" }}>所属チーム名</th>
+                  <th className="py-2.5 text-center" style={{ width: currentUserRole === "owner" ? "12%" : "13%" }}>状態</th>
+                  <th className="py-2.5 text-center" style={{ width: currentUserRole === "owner" ? "12%" : "13%" }}>対象稼働人数</th>
+                  <th className="py-2.5 text-center" style={{ width: currentUserRole === "owner" ? "12%" : "13%" }}>チーム総出勤日数</th>
+                  <th className="py-2.5 text-center" style={{ width: currentUserRole === "owner" ? "12%" : "13%" }}>チーム総出勤回数</th>
+                  <th className="py-2.5 text-right" style={{ width: currentUserRole === "owner" ? "13%" : "13%" }}>チーム総勤務時間</th>
+                  {currentUserRole === "owner" && <th className="py-2.5 text-right pr-6 text-emerald-600 font-extrabold" style={{ width: "14%" }}>チーム総報酬額（税抜）</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50 text-gray-600 font-bold text-xs">
@@ -402,14 +400,14 @@ export default function TabSummary({
                   if (!data) return null;
 
                   return (
-                    <tr key={dept} className="hover:bg-gray-50/30 transition-colors h-14">
-                      <td className="pl-6 py-3 truncate" title={dept}>
+                    <tr key={dept} className="hover:bg-gray-50/30 transition-colors">
+                      <td className="pl-6 py-2.5 truncate" title={dept}>
                         <span className="bg-emerald-50 text-emerald-700 px-2.5 py-0.5 rounded-xl font-black border border-emerald-100 text-[11px] inline-block truncate max-w-full">
                           {dept}
                         </span>
                       </td>
                       
-                      <td className="text-center py-3">
+                      <td className="text-center py-2.5">
                         {!data.hasAttendance ? (
                           <span className="text-[10px] bg-gray-100 text-gray-400 px-2 py-0.5 rounded-xl font-medium inline-block select-none">
                             💤 稼働なし
@@ -425,12 +423,12 @@ export default function TabSummary({
                         )}
                       </td>
 
-                      <td className="text-center tabular-nums text-gray-700 py-3">{data.memberCount} 名</td>
-                      <td className="text-center tabular-nums text-gray-500 py-3">{data.totalDays} 日分</td>
-                      <td className="text-center tabular-nums text-purple-600 py-3">{data.totalSessions} 回</td>
-                      <td className="text-right tabular-nums text-gray-800 font-mono py-3">{Math.round(data.totalHours * 100) / 100} 時間</td>
+                      <td className="text-center tabular-nums text-gray-700 py-2.5">{data.memberCount} 名</td>
+                      <td className="text-center tabular-nums text-gray-500 py-2.5">{data.totalDays} 日分</td>
+                      <td className="text-center tabular-nums text-purple-600 py-2.5">{data.totalSessions} 回</td>
+                      <td className="text-right tabular-nums text-gray-800 font-mono py-2.5">{Math.round(data.totalHours * 100) / 100} 時間</td>
                       {currentUserRole === "owner" && (
-                        <td className="text-right pr-6 tabular-nums text-emerald-600 font-mono text-sm font-black py-3">
+                        <td className="text-right pr-6 tabular-nums text-emerald-600 font-mono text-sm font-black py-2.5">
                           ¥{data.totalReward.toLocaleString()}
                         </td>
                       )}

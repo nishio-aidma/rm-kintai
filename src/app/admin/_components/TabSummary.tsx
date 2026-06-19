@@ -41,7 +41,7 @@ export default function TabSummary({
   const [isNotifying, setIsNotifying] = useState(false);
   const [selectedEmails, setSelectedEmails] = useState<string[]>([]);
 
-  // 💡 【新設】親ファイルを汚さず、このコンポーネント単体で安全にownerを識別するためのセキュリティステート
+  // 親ファイルを汚さず、このコンポーネント単体で安全にownerを識別するためのセキュリティステート
   const [currentUserRole, setCurrentUserRole] = useState<"admin" | "owner">("admin");
 
   // 一括催促通知用のリッチカスタムモーダルステート（仕様保持）
@@ -52,7 +52,7 @@ export default function TabSummary({
     onConfirm: () => Promise<void>;
   }>({ targetCount: 0, formattedMessage: "", onConfirm: async () => {} });
 
-  // 💡 【新設】画面起動時に「パソコンのメモ帳（合言葉）」をチェックしてownerかどうかを完全自動判定
+  // 画面起動時に「パソコンのメモ帳（合言葉）」をチェックしてownerかどうかを完全自動判定
   useEffect(() => {
     const sessionStr = localStorage.getItem("session");
     if (sessionStr) {
@@ -100,9 +100,52 @@ export default function TabSummary({
     return !isSubmitted;
   }).length;
 
-  // 💡 【修正】所属別モードの集計オブジェクトの型定義に「totalSessions（総出勤回数）」を新設
-  const departmentSummaries: { [key: string]: { memberCount: number; totalDays: number; totalSessions: number; totalHours: number; totalReward: number } } = {};
+  const uniqueDepartments = Array.from(
+    new Set([
+      ...members.map((m: any) => m.department).filter(Boolean),
+      ...attendanceRecords.map((r: any) => defaultGetMemberMeta(r.email).department).filter(Boolean)
+    ])
+  ) as string[];
+
+  // 💡 【大改造】所属別モードの集計用オブジェクト（未提出フラグと稼働有無フラグを新設）
+  const departmentSummaries: { 
+    [key: string]: { 
+      memberCount: number; 
+      totalDays: number; 
+      totalSessions: number; 
+      totalHours: number; 
+      totalReward: number;
+      hasUnsubmitted: boolean; // 💡 チーム内に未提出者が一人でもいるか
+      hasAttendance: boolean;  // 💡 チーム内に今月稼働した人が一人でもいるか
+    } 
+  } = {};
   
+  // 💡 【大改造】要件②：システム内の全てのチームについて、マスタ全体の登録データから「対象稼働人数」をズレなく完全先行集計！
+  const allPossibleDepts = uniqueDepartments.includes("未設定") ? uniqueDepartments : [...uniqueDepartments, "未設定"];
+  
+  allPossibleDepts.forEach(dept => {
+    // 👑 ユーザー指定要件：「所属である人、かつリーダーの人数を含めるが、リーダーになっている方が、別のチームの所属になっている場合は、人数としてカウントしない」を100%ロジック化！
+    const exactMemberCount = members.filter((m: any) => {
+      const mDept = m.department || "未設定";
+      const isBelong = mDept === dept; // 本来の所属チームが一致
+      const isLeader = m.leadingTeams?.includes(dept); // そのチームのリーダーである
+      const isBelongToOther = m.department && m.department !== dept; // 別のチームに所属している
+      
+      return isBelong || (isLeader && !isBelongToOther);
+    }).length;
+
+    departmentSummaries[dept] = {
+      memberCount: exactMemberCount,
+      totalDays: 0,
+      totalSessions: 0,
+      totalHours: 0,
+      totalReward: 0,
+      hasUnsubmitted: false,
+      hasAttendance: false
+    };
+  });
+
+  // 💡 稼働実績データの合算と、チームごとの提出状況ステータスの判定
   allSummaryEmails.forEach(email => {
     const meta = defaultGetMemberMeta(email);
     const deptName = meta.department || "未設定";
@@ -111,22 +154,34 @@ export default function TabSummary({
     const totalHours = userRecords.reduce((sum, r) => sum + (r.workHours || 0), 0);
     const roundedHours = Math.round(totalHours * 100) / 100;
     const totalDays = new Set(userRecords.map(r => r.workDate)).size;
-    
-    // 💡 【新設】「開始」と「終了」が揃っている有効な打刻セクションの数を1人ずつ集計
     const totalSessions = userRecords.filter(r => r.endTime && r.endTime !== "---").length;
     const totalReward = Math.round(roundedHours * meta.hourlyRate);
 
+    // このメンバー自身の提出状態
+    const isSubmitted = userRecords.length > 0 && userRecords.some(r => r.submitted);
+
     if (!departmentSummaries[deptName]) {
-      departmentSummaries[deptName] = { memberCount: 0, totalDays: 0, totalSessions: 0, totalHours: 0, totalReward: 0 };
+      departmentSummaries[deptName] = { memberCount: 0, totalDays: 0, totalSessions: 0, totalHours: 0, totalReward: 0, hasUnsubmitted: false, hasAttendance: false };
     }
-    departmentSummaries[deptName].memberCount += 1;
+    
+    departmentSummaries[deptName].hasAttendance = true; // 稼働実績あり
+    if (!isSubmitted) {
+      departmentSummaries[deptName].hasUnsubmitted = true; // チーム内に未提出者を発見
+    }
+
     departmentSummaries[deptName].totalDays += totalDays;
-    departmentSummaries[deptName].totalSessions += totalSessions; // ←合算
+    departmentSummaries[deptName].totalSessions += totalSessions;
     departmentSummaries[deptName].totalHours += roundedHours;
     departmentSummaries[deptName].totalReward += totalReward;
   });
 
-  const filteredDeptKeys = Object.keys(departmentSummaries);
+  // フィルターがかかっている場合は、そのチームだけを表示対象にする
+  const filteredDeptKeys = allPossibleDepts.filter(dept => {
+    if (filterDepartment !== "all" && dept !== filterDepartment) return false;
+    // 人数も稼働も完全に0の空っぽのチームはノイズになるため一覧から除外
+    const data = departmentSummaries[dept];
+    return data && (data.memberCount > 0 || data.hasAttendance);
+  });
 
   useEffect(() => {
     setSelectedEmails([]);
@@ -235,7 +290,6 @@ export default function TabSummary({
             )
           )}
 
-          {/* 💡 時給データを計算に入れているCSV出力ボタン自体もowner専用にして保護 */}
           {currentUserRole === "owner" && (
             <button 
               onClick={handleExportRewardCSV} 
@@ -268,10 +322,8 @@ export default function TabSummary({
                 <th className="py-2 whitespace-nowrap">メールアドレス</th>
                 <th className="py-2 whitespace-nowrap">所属チーム</th>
                 <th className="py-2 text-center whitespace-nowrap">出勤日数</th>
-                {/* 💡 ①「出勤日数」のとなりに「出勤回数」の列見出しを新設 */}
                 <th className="py-2 text-center whitespace-nowrap">出勤回数</th>
                 <th className="py-2 text-right whitespace-nowrap">勤務時間</th>
-                {/* 💡 ② 時給と報酬額の列見出しはowner以外には100%非表示（非レンダリング）へ */}
                 {currentUserRole === "owner" && <th className="py-2 text-right whitespace-nowrap">設定時給</th>}
                 {currentUserRole === "owner" && <th className="py-2 text-right pr-4 text-emerald-600 whitespace-nowrap">報酬額（税抜）</th>}
               </tr>
@@ -283,8 +335,6 @@ export default function TabSummary({
                 const totalHours = userRecords.reduce((sum, r) => sum + (r.workHours || 0), 0);
                 const roundedHours = Math.round(totalHours * 100) / 100;
                 const totalDays = new Set(userRecords.map(r => r.workDate)).size;
-                
-                // 💡 ①「業務開始」と「業務終了」がワンセットになった有効なセッション数を一瞬で算出
                 const totalSessions = userRecords.filter(r => r.endTime && r.endTime !== "---").length;
                 const totalReward = Math.round(roundedHours * meta.hourlyRate);
 
@@ -313,10 +363,8 @@ export default function TabSummary({
                     <td className="py-1.5 text-gray-400 tabular-nums">{email}</td>
                     <td className="py-1.5"><span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded font-bold text-xs">{meta.department}</span></td>
                     <td className="py-1.5 text-center tabular-nums">{totalDays} 日</td>
-                    {/* 💡 ① 出勤回数の実数データを美しく流し込み */}
                     <td className="py-1.5 text-center tabular-nums font-bold text-purple-600">{totalSessions} 回</td>
                     <td className="py-1.5 text-right tabular-nums">{roundedHours} 時間</td>
-                    {/* 💡 ② 時給と報酬のセル実データも、一般管理者(admin)の画面からは跡形もなく完全非表示 */}
                     {currentUserRole === "owner" && <td className="py-1.5 text-right tabular-nums">¥{meta.hourlyRate.toLocaleString()}</td>}
                     {currentUserRole === "owner" && <td className="py-1.5 text-right pr-4 tabular-nums font-black text-emerald-600 text-sm">¥{totalReward.toLocaleString()}</td>}
                   </tr>
@@ -334,18 +382,20 @@ export default function TabSummary({
             <thead>
               <tr className="border-b border-gray-100 text-gray-400 font-bold bg-gray-50/50 text-[11px]">
                 <th className="py-2 pl-6">所属チーム名</th>
+                {/* 💡 ①【大新設】要件：チーム単位での提出状況がひと目でわかる「状態」列を追加 */}
+                <th className="py-2 text-center w-28">状態</th>
                 <th className="py-2 text-center w-32">対象稼働人数</th>
                 <th className="py-2 text-center w-32">チーム総出勤日数</th>
-                {/* 💡 ① 所属別モードにも「チーム総出勤回数」の見出しを新設 */}
                 <th className="py-2 text-center w-32">チーム総出勤回数</th>
                 <th className="py-2 text-right w-40">チーム総勤務時間</th>
-                {/* 💡 ② 所属別のチーム総報酬額もadminには非表示にロック */}
                 {currentUserRole === "owner" && <th className="py-2 text-right pr-6 text-emerald-600 font-extrabold">チーム総報酬額（税抜）</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50 text-gray-600 font-bold text-sm">
               {filteredDeptKeys.map(dept => {
                 const data = departmentSummaries[dept];
+                if (!data) return null;
+
                 return (
                   <tr key={dept} className="hover:bg-gray-50/30 transition-colors">
                     <td className="py-2 pl-6">
@@ -353,12 +403,29 @@ export default function TabSummary({
                         {dept}
                       </span>
                     </td>
+                    
+                    {/* 💡 ①【大新設】要件：全員提出済か未提出ありかをバッジ風に美しく出し分け */}
+                    <td className="py-2 text-center">
+                      {!data.hasAttendance ? (
+                        <span className="text-[10px] bg-gray-100 text-gray-400 px-2 py-0.5 rounded-xl font-medium inline-block select-none">
+                          💤 稼働なし
+                        </span>
+                      ) : data.hasUnsubmitted ? (
+                        <span className="text-[10px] bg-amber-50 text-amber-600 border border-amber-200 px-2 py-0.5 rounded-xl font-extrabold shadow-sm inline-block select-none animate-fadeIn">
+                          ⏳ 未提出あり
+                        </span>
+                      ) : (
+                        <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-xl font-extrabold shadow-sm inline-block select-none animate-fadeIn">
+                          ☑️ 全員提出済
+                        </span>
+                      )}
+                    </td>
+
+                    {/* 💡 ②【修正】要件通りの計算式でズレを100%解消した、正しい対象稼働人数 */}
                     <td className="py-2 text-center tabular-nums text-gray-700">{data.memberCount} 名</td>
                     <td className="py-2 text-center tabular-nums text-gray-500">{data.totalDays} 日分</td>
-                    {/* 💡 ① チーム内の合算出勤回数を表示 */}
                     <td className="py-2 text-center tabular-nums text-purple-600">{data.totalSessions} 回</td>
                     <td className="py-2 text-right tabular-nums text-gray-800 font-mono">{Math.round(data.totalHours * 100) / 100} 時間</td>
-                    {/* 💡 ② admin画面からは綺麗に非表示化 */}
                     {currentUserRole === "owner" && (
                       <td className="py-2 text-right pr-6 tabular-nums text-emerald-600 font-mono text-base font-black">
                         ¥{data.totalReward.toLocaleString()}

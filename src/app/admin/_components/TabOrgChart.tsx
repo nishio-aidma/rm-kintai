@@ -2,8 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { MemberInfo, attendanceRepository } from "@/lib/attendanceRepository";
-// 💡 ログイン中のアカウント権限をその場で判定するためにFirebase Authをインポート
-import { getAuth } from "firebase/auth";
+// 💡 【修正】不具合の原因だった getAuth のインポートを安全に撤廃
 // @ts-ignore
 import pptxgen from "pptxgenjs";
 
@@ -57,14 +56,20 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
         ) as string[];
         setDisplayDepartments(allDepts);
 
-        // 3. 現在ログインしているユーザーが「owner（またはオーナー代理）」か判定
-        const auth = getAuth();
-        const currentUser = auth.currentUser;
-        if (currentUser?.email) {
-          const me = allMembers.find(m => m.email.toLowerCase() === currentUser.email?.toLowerCase());
-          // 💡 【ここを修正】(me?.role as string) とすることで、TypeScriptのエラー(ts2367)を完全に回避しました
-          if ((me?.role as string) === "owner" || me?.isOwnerProxy) {
-            setIsEditable(true); // owner系なら編集フル機能を解放
+        // 3. 💡 【大修正】Firebase公式の居眠り鍵穴ではなく、他の画面と100%統一して「パソコンのメモ帳（合言葉）」からownerを即時判定！
+        const sessionStr = localStorage.getItem("session");
+        if (sessionStr) {
+          const session = JSON.parse(sessionStr);
+          const email = session.email || "";
+
+          // 西尾さんは最上位のowner、または全メンバー情報から代理フラグやownerロールをチェック
+          if (email === "nishio@aidma-hd.jp") {
+            setIsEditable(true); // 西尾さん本人のロックを強制解除！
+          } else {
+            const me = allMembers.find(m => m.email.toLowerCase() === email.toLowerCase());
+            if (me?.isOwnerProxy || (me?.role as string) === "owner") {
+              setIsEditable(true); // 代理権限者のロックを強制解除！
+            }
           }
         }
         
@@ -308,7 +313,7 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
           className={`font-black text-xs px-5 py-3 rounded-xl shadow-xl transition-all flex items-center space-x-2 ${
             isExporting
               ? "bg-gray-100 text-gray-400 cursor-not-allowed"
-              : "bg-purple-600 hover:bg-purple-700 text-white shadow-purple-100 hover:scale-[1.02]"
+              : "bg-purple-600 hover:bg-purple-700 text-white shadow-purple-100 hover:scale-[1.02] active:scale-95"
           }`}
         >
           <span>{isExporting ? "⏳ 組織図を生成中..." : "📥 組織図スライド(PPTX)を出力する"}</span>
@@ -376,12 +381,12 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
                                   <span className="text-xs flex-shrink-0">👑</span>
                                   <span className="font-extrabold text-[12px] text-gray-800 truncate">{leader.name}</span>
                                 </div>
-                                {/* 💡 編集権限がある場合のみ表示 */}
+                                {/* 💡 【復活】ロック解除により、西尾さんの画面では✕ボタンが正常に復活します */}
                                 {isEditable && (
                                   <button
                                     type="button"
                                     onClick={() => handleRemoveLeader(deptName, leader.email)}
-                                    className="text-[9px] font-bold bg-white hover:bg-rose-50 text-rose-500 hover:text-rose-600 border border-amber-200 px-1.5 py-0.5 rounded flex-shrink-0"
+                                    className="text-[9px] font-bold bg-white hover:bg-rose-50 text-rose-500 hover:text-rose-600 border border-amber-200 px-1.5 py-0.5 rounded flex-shrink-0 cursor-pointer"
                                   >
                                     ✕
                                   </button>
@@ -393,7 +398,7 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
                           <div className="bg-gray-50/50 border border-dashed border-gray-200 rounded-lg p-1.5 space-y-1 text-center">
                             <p className="text-gray-300 italic text-[10px] font-normal">未設定</p>
                             
-                            {/* 💡 編集権限がある場合のみ表示 */}
+                            {/* 💡 【復活】ロック解除により、西尾さんの画面ではプルダウンが正常に復活します */}
                             {isEditable && (
                               <div className="grid grid-cols-1 gap-1 pt-0.5">
                                 <select
@@ -447,12 +452,12 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
                         </div>
                       </div>
 
-                      {/* 💡 編集権限がある場合のみ表示 */}
+                      {/* 【復活】子チーム作成ボタン */}
                       {isEditable && (
                         <div className="pt-2 border-t border-gray-100 flex flex-col items-center">
                           <button
                             onClick={() => setShowAddSubModal(deptName)}
-                            className="w-full py-1.5 bg-gray-50 hover:bg-emerald-50 text-gray-500 hover:text-emerald-600 border border-gray-200 hover:border-emerald-200 border-dashed rounded-lg text-[10px] font-extrabold transition-all text-center"
+                            className="w-full py-1.5 bg-gray-50 hover:bg-emerald-50 text-gray-500 hover:text-emerald-600 border border-gray-200 hover:border-emerald-200 border-dashed rounded-lg text-[10px] font-extrabold transition-all text-center cursor-pointer"
                           >
                             ➕ 下部階層（子チーム）を作成
                           </button>
@@ -468,7 +473,7 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
                   )}
 
                   <div className="flex flex-col items-center space-y-4">
-                    {currentSubTeams.map((sub, sIdx) => (
+                    {currentSubTeams.map((sub) => (
                       <div key={sub.id} className="w-52 bg-slate-50 border border-slate-200 rounded-xl p-2.5 shadow-sm relative z-10 animate-fadeIn">
                         <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-4 w-0.5 h-4 bg-gray-300"></div>
                         
@@ -494,13 +499,13 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
                       <div className="flex space-x-1.5 justify-end">
                         <button
                           onClick={() => setShowAddSubModal(null)}
-                          className="text-[9px] font-bold bg-white text-gray-400 px-2 py-1 rounded border border-gray-200"
+                          className="text-[9px] font-bold bg-white text-gray-400 px-2 py-1 rounded border border-gray-200 cursor-pointer"
                         >
                           キャンセル
                         </button>
                         <button
                           onClick={() => handleAddSubTeam(deptName)}
-                          className="text-[9px] font-bold bg-emerald-600 text-white px-2 py-1 rounded"
+                          className="text-[9px] font-bold bg-emerald-600 text-white px-2 py-1 rounded cursor-pointer"
                         >
                           作成する
                         </button>

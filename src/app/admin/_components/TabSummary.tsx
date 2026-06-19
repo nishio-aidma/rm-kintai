@@ -107,7 +107,6 @@ export default function TabSummary({
     ])
   ) as string[];
 
-  // 💡 【大改造】所属別モードの集計用オブジェクト（未提出フラグと稼働有無フラグを新設）
   const departmentSummaries: { 
     [key: string]: { 
       memberCount: number; 
@@ -115,21 +114,19 @@ export default function TabSummary({
       totalSessions: number; 
       totalHours: number; 
       totalReward: number;
-      hasUnsubmitted: boolean; // 💡 チーム内に未提出者が一人でもいるか
-      hasAttendance: boolean;  // 💡 チーム内に今月稼働した人が一人でもいるか
+      hasUnsubmitted: boolean;
+      hasAttendance: boolean;
     } 
   } = {};
   
-  // 💡 【大改造】要件②：システム内の全てのチームについて、マスタ全体の登録データから「対象稼働人数」をズレなく完全先行集計！
   const allPossibleDepts = uniqueDepartments.includes("未設定") ? uniqueDepartments : [...uniqueDepartments, "未設定"];
   
   allPossibleDepts.forEach(dept => {
-    // 👑 ユーザー指定要件：「所属である人、かつリーダーの人数を含めるが、リーダーになっている方が、別のチームの所属になっている場合は、人数としてカウントしない」を100%ロジック化！
     const exactMemberCount = members.filter((m: any) => {
       const mDept = m.department || "未設定";
-      const isBelong = mDept === dept; // 本来の所属チームが一致
-      const isLeader = m.leadingTeams?.includes(dept); // そのチームのリーダーである
-      const isBelongToOther = m.department && m.department !== dept; // 別のチームに所属している
+      const isBelong = mDept === dept;
+      const isLeader = m.leadingTeams?.includes(dept);
+      const isBelongToOther = m.department && m.department !== dept;
       
       return isBelong || (isLeader && !isBelongToOther);
     }).length;
@@ -145,7 +142,6 @@ export default function TabSummary({
     };
   });
 
-  // 💡 稼働実績データの合算と、チームごとの提出状況ステータスの判定
   allSummaryEmails.forEach(email => {
     const meta = defaultGetMemberMeta(email);
     const deptName = meta.department || "未設定";
@@ -157,16 +153,15 @@ export default function TabSummary({
     const totalSessions = userRecords.filter(r => r.endTime && r.endTime !== "---").length;
     const totalReward = Math.round(roundedHours * meta.hourlyRate);
 
-    // このメンバー自身の提出状態
     const isSubmitted = userRecords.length > 0 && userRecords.some(r => r.submitted);
 
     if (!departmentSummaries[deptName]) {
       departmentSummaries[deptName] = { memberCount: 0, totalDays: 0, totalSessions: 0, totalHours: 0, totalReward: 0, hasUnsubmitted: false, hasAttendance: false };
     }
     
-    departmentSummaries[deptName].hasAttendance = true; // 稼働実績あり
+    departmentSummaries[deptName].hasAttendance = true;
     if (!isSubmitted) {
-      departmentSummaries[deptName].hasUnsubmitted = true; // チーム内に未提出者を発見
+      departmentSummaries[deptName].hasUnsubmitted = true;
     }
 
     departmentSummaries[deptName].totalDays += totalDays;
@@ -175,10 +170,8 @@ export default function TabSummary({
     departmentSummaries[deptName].totalReward += totalReward;
   });
 
-  // フィルターがかかっている場合は、そのチームだけを表示対象にする
   const filteredDeptKeys = allPossibleDepts.filter(dept => {
     if (filterDepartment !== "all" && dept !== filterDepartment) return false;
-    // 人数も稼働も完全に0の空っぽのチームはノイズになるため一覧から除外
     const data = departmentSummaries[dept];
     return data && (data.memberCount > 0 || data.hasAttendance);
   });
@@ -301,141 +294,149 @@ export default function TabSummary({
         </div>
       </div>
 
+      {/* 💡 【大改造】横スクロールエリアの最小幅を広げ、一定の間隔を死守するテーブル構造へ一新 */}
       {viewMode === "user" ? (
         displayedEmails.length === 0 ? (
           <p className="text-center text-gray-400 py-10 font-medium">該当する提出状態・所属チームのメンバーはいません。</p>
         ) : (
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="border-b border-gray-100 text-gray-400 font-bold bg-gray-50/50 text-[11px]">
-                <th className="py-2 pl-3 w-20 text-center whitespace-nowrap">
-                  <button 
-                    onClick={handleSelectAll}
-                    className="bg-white border border-gray-300 hover:border-emerald-500 text-gray-700 rounded-md px-2 py-0.5 font-bold text-[10px] shadow-sm transition-all whitespace-nowrap cursor-pointer"
-                  >
-                    {selectedEmails.length === displayedEmails.length ? "全解除" : "全選択"}
-                  </button>
-                </th>
-                <th className="py-2 w-24 text-center whitespace-nowrap">状態</th>
-                <th className="py-2 whitespace-nowrap">管理番号</th>
-                <th className="py-2 whitespace-nowrap">氏名 (メンバー名)</th>
-                <th className="py-2 whitespace-nowrap">メールアドレス</th>
-                <th className="py-2 whitespace-nowrap">所属チーム</th>
-                <th className="py-2 text-center whitespace-nowrap">出勤日数</th>
-                <th className="py-2 text-center whitespace-nowrap">出勤回数</th>
-                <th className="py-2 text-right whitespace-nowrap">勤務時間</th>
-                {currentUserRole === "owner" && <th className="py-2 text-right whitespace-nowrap">設定時給</th>}
-                {currentUserRole === "owner" && <th className="py-2 text-right pr-4 text-emerald-600 whitespace-nowrap">報酬額（税抜）</th>}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50 text-gray-600 font-medium text-sm">
-              {displayedEmails.map(email => {
-                const meta = defaultGetMemberMeta(email);
-                const userRecords = (attendanceRecords as AdminAttendanceRecord[]).filter(r => r.workDate.startsWith(selectedMonth) && r.email === email);
-                const totalHours = userRecords.reduce((sum, r) => sum + (r.workHours || 0), 0);
-                const roundedHours = Math.round(totalHours * 100) / 100;
-                const totalDays = new Set(userRecords.map(r => r.workDate)).size;
-                const totalSessions = userRecords.filter(r => r.endTime && r.endTime !== "---").length;
-                const totalReward = Math.round(roundedHours * meta.hourlyRate);
+          <div className="overflow-x-auto border border-gray-100 rounded-xl">
+            {/* 💡 table-fixedを適用し、インラインCSSを使わず確実なピクセル幅で列を固定 */}
+            <table className="w-full text-left border-collapse table-fixed min-w-[1240px]">
+              <thead>
+                <tr className="border-b border-gray-100 text-gray-400 font-bold bg-gray-50/50 text-[11px] uppercase tracking-wider h-11">
+                  <th className="w-20 text-center px-3 py-2">
+                    <button 
+                      onClick={handleSelectAll}
+                      className="bg-white border border-gray-300 hover:border-emerald-500 text-gray-700 rounded-md px-2 py-0.5 font-bold text-[10px] shadow-sm transition-all whitespace-nowrap cursor-pointer"
+                    >
+                      {selectedEmails.length === displayedEmails.length ? "全解除" : "全選択"}
+                    </button>
+                  </th>
+                  <th className="w-24 text-center px-3 py-2">状態</th>
+                  <th className="w-28 px-3 py-2">管理番号</th>
+                  <th className="w-36 px-3 py-2">氏名 (メンバー名)</th>
+                  <th className="w-64 px-3 py-2">メールアドレス</th>
+                  <th className="w-32 px-3 py-2">所属チーム</th>
+                  <th className="w-24 text-center px-3 py-2">出勤日数</th>
+                  <th className="w-24 text-center px-3 py-2">出勤回数</th>
+                  <th className="w-24 text-right px-3 py-2">勤務時間</th>
+                  {currentUserRole === "owner" && <th className="w-24 text-right px-3 py-2">設定時給</th>}
+                  {currentUserRole === "owner" && <th className="w-32 text-right pr-5 text-emerald-600">報酬額（税抜）</th>}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50 text-gray-600 font-medium text-xs">
+                {displayedEmails.map(email => {
+                  const meta = defaultGetMemberMeta(email);
+                  const userRecords = (attendanceRecords as AdminAttendanceRecord[]).filter(r => r.workDate.startsWith(selectedMonth) && r.email === email);
+                  const totalHours = userRecords.reduce((sum, r) => sum + (r.workHours || 0), 0);
+                  const roundedHours = Math.round(totalHours * 100) / 100;
+                  const totalDays = new Set(userRecords.map(r => r.workDate)).size;
+                  const totalSessions = userRecords.filter(r => r.endTime && r.endTime !== "---").length;
+                  const totalReward = Math.round(roundedHours * meta.hourlyRate);
 
-                const isSubmitted = userRecords.length > 0 && userRecords.some(r => r.submitted);
-                const isChecked = selectedEmails.includes(email);
+                  const isSubmitted = userRecords.length > 0 && userRecords.some(r => r.submitted);
+                  const isChecked = selectedEmails.includes(email);
 
-                return (
-                  <tr key={email} className={`transition-colors ${isChecked ? "bg-emerald-50/20 hover:bg-emerald-50/30" : "hover:bg-gray-50/30"}`}>
-                    <td className="py-1.5 pl-3 text-center">
-                      <input 
-                        type="checkbox" 
-                        checked={isChecked}
-                        onChange={() => handleSelectIndividual(email)}
-                        className="w-4 h-4 rounded border-gray-300 text-emerald-500 focus:ring-emerald-400 cursor-pointer transition-all"
-                      />
-                    </td>
-                    <td className="py-1.5 text-center">
-                      {isSubmitted ? (
-                        <span className="text-emerald-600 font-black text-sm tracking-tight">☑️ 提出済</span>
-                      ) : (
-                        <span className="text-amber-500 font-bold text-sm tracking-tight">⏳ 未提出</span>
-                      )}
-                    </td>
-                    <td className="py-1.5 tabular-nums text-gray-400 pl-1">{meta.managementNumber}</td>
-                    <td className="py-1.5 font-bold text-gray-900">{meta.name}</td>
-                    <td className="py-1.5 text-gray-400 tabular-nums">{email}</td>
-                    <td className="py-1.5"><span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded font-bold text-xs">{meta.department}</span></td>
-                    <td className="py-1.5 text-center tabular-nums">{totalDays} 日</td>
-                    <td className="py-1.5 text-center tabular-nums font-bold text-purple-600">{totalSessions} 回</td>
-                    <td className="py-1.5 text-right tabular-nums">{roundedHours} 時間</td>
-                    {currentUserRole === "owner" && <td className="py-1.5 text-right tabular-nums">¥{meta.hourlyRate.toLocaleString()}</td>}
-                    {currentUserRole === "owner" && <td className="py-1.5 text-right pr-4 tabular-nums font-black text-emerald-600 text-sm">¥{totalReward.toLocaleString()}</td>}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                  return (
+                    <tr key={email} className={`transition-colors h-12 ${isChecked ? "bg-emerald-50/20 hover:bg-emerald-50/30" : "hover:bg-gray-50/30"}`}>
+                      <td className="text-center px-3 py-2.5">
+                        <input 
+                          type="checkbox" 
+                          checked={isChecked}
+                          onChange={() => handleSelectIndividual(email)}
+                          className="w-4 h-4 rounded border-gray-300 text-emerald-500 focus:ring-emerald-400 cursor-pointer transition-all"
+                        />
+                      </td>
+                      <td className="text-center px-3 py-2.5">
+                        {isSubmitted ? (
+                          <span className="text-emerald-600 font-black tracking-tight bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-md">☑️ 提出済</span>
+                        ) : (
+                          <span className="text-amber-500 font-bold tracking-tight bg-amber-50 border border-amber-100 px-2 py-0.5 rounded-md">⏳ 未提出</span>
+                        )}
+                      </td>
+                      <td className="tabular-nums text-gray-400 px-3 py-2.5">{meta.managementNumber}</td>
+                      <td className="font-bold text-gray-900 px-3 py-2.5 truncate" title={meta.name}>{meta.name}</td>
+                      {/* 💡 はみ出たメールアドレスが列を破壊しないよう、truncateガードを徹底 */}
+                      <td className="text-gray-400 tabular-nums px-3 py-2.5 truncate" title={email}>{email}</td>
+                      <td className="px-3 py-2.5 truncate">
+                        <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded font-bold text-[11px] inline-block truncate max-w-full" title={meta.department}>
+                          {meta.department}
+                        </span>
+                      </td>
+                      <td className="text-center tabular-nums px-3 py-2.5 text-gray-700">{totalDays} 日</td>
+                      <td className="text-center tabular-nums font-bold text-purple-600 px-3 py-2.5">{totalSessions} 回</td>
+                      <td className="text-right tabular-nums px-3 py-2.5 text-gray-800">{roundedHours} 時間</td>
+                      {currentUserRole === "owner" && <td className="text-right tabular-nums px-3 py-2.5">¥{meta.hourlyRate.toLocaleString()}</td>}
+                      {currentUserRole === "owner" && <td className="text-right pr-5 tabular-nums font-black text-emerald-600 text-[13px]">¥{totalReward.toLocaleString()}</td>}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )
       ) : (
-        /* ================= 🏢 所属別モードのテーブル ================= */
+        /* ================= 🏢 所属別モードのテーブル（こちらも完全固定幅化） ================= */
         filteredDeptKeys.length === 0 ? (
           <p className="text-center text-gray-400 py-10 font-medium">該当する所属チームはありません。</p>
         ) : (
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="border-b border-gray-100 text-gray-400 font-bold bg-gray-50/50 text-[11px]">
-                <th className="py-2 pl-6">所属チーム名</th>
-                {/* 💡 ①【大新設】要件：チーム単位での提出状況がひと目でわかる「状態」列を追加 */}
-                <th className="py-2 text-center w-28">状態</th>
-                <th className="py-2 text-center w-32">対象稼働人数</th>
-                <th className="py-2 text-center w-32">チーム総出勤日数</th>
-                <th className="py-2 text-center w-32">チーム総出勤回数</th>
-                <th className="py-2 text-right w-40">チーム総勤務時間</th>
-                {currentUserRole === "owner" && <th className="py-2 text-right pr-6 text-emerald-600 font-extrabold">チーム総報酬額（税抜）</th>}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50 text-gray-600 font-bold text-sm">
-              {filteredDeptKeys.map(dept => {
-                const data = departmentSummaries[dept];
-                if (!data) return null;
+          <div className="overflow-x-auto border border-gray-100 rounded-xl">
+            <table className="w-full text-left border-collapse table-fixed min-w-[960px]">
+              <thead>
+                <tr className="border-b border-gray-100 text-gray-400 font-bold bg-gray-50/50 text-[11px] uppercase tracking-wider h-11">
+                  <th className="w-48 pl-6 py-2">所属チーム名</th>
+                  <th className="w-28 text-center py-2">状態</th>
+                  <th className="w-32 text-center py-2">対象稼働人数</th>
+                  <th className="w-32 text-center py-2">チーム総出勤日数</th>
+                  <th className="w-32 text-center py-2">チーム総出勤回数</th>
+                  <th className="w-36 text-right py-2">チーム総勤務時間</th>
+                  {currentUserRole === "owner" && <th className="w-40 text-right pr-6 text-emerald-600 font-extrabold">チーム総報酬額（税抜）</th>}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50 text-gray-600 font-bold text-xs">
+                {filteredDeptKeys.map(dept => {
+                  const data = departmentSummaries[dept];
+                  if (!data) return null;
 
-                return (
-                  <tr key={dept} className="hover:bg-gray-50/30 transition-colors">
-                    <td className="py-2 pl-6">
-                      <span className="bg-emerald-50 text-emerald-700 px-2.5 py-0.5 rounded-xl font-black border border-emerald-100 text-xs">
-                        {dept}
-                      </span>
-                    </td>
-                    
-                    {/* 💡 ①【大新設】要件：全員提出済か未提出ありかをバッジ風に美しく出し分け */}
-                    <td className="py-2 text-center">
-                      {!data.hasAttendance ? (
-                        <span className="text-[10px] bg-gray-100 text-gray-400 px-2 py-0.5 rounded-xl font-medium inline-block select-none">
-                          💤 稼働なし
+                  return (
+                    <tr key={dept} className="hover:bg-gray-50/30 transition-colors h-12">
+                      <td className="pl-6 py-2.5 truncate" title={dept}>
+                        <span className="bg-emerald-50 text-emerald-700 px-2.5 py-0.5 rounded-xl font-black border border-emerald-100 text-[11px] inline-block truncate max-w-full">
+                          {dept}
                         </span>
-                      ) : data.hasUnsubmitted ? (
-                        <span className="text-[10px] bg-amber-50 text-amber-600 border border-amber-200 px-2 py-0.5 rounded-xl font-extrabold shadow-sm inline-block select-none animate-fadeIn">
-                          ⏳ 未提出あり
-                        </span>
-                      ) : (
-                        <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-xl font-extrabold shadow-sm inline-block select-none animate-fadeIn">
-                          ☑️ 全員提出済
-                        </span>
-                      )}
-                    </td>
-
-                    {/* 💡 ②【修正】要件通りの計算式でズレを100%解消した、正しい対象稼働人数 */}
-                    <td className="py-2 text-center tabular-nums text-gray-700">{data.memberCount} 名</td>
-                    <td className="py-2 text-center tabular-nums text-gray-500">{data.totalDays} 日分</td>
-                    <td className="py-2 text-center tabular-nums text-purple-600">{data.totalSessions} 回</td>
-                    <td className="py-2 text-right tabular-nums text-gray-800 font-mono">{Math.round(data.totalHours * 100) / 100} 時間</td>
-                    {currentUserRole === "owner" && (
-                      <td className="py-2 text-right pr-6 tabular-nums text-emerald-600 font-mono text-base font-black">
-                        ¥{data.totalReward.toLocaleString()}
                       </td>
-                    )}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                      
+                      <td className="text-center py-2.5">
+                        {!data.hasAttendance ? (
+                          <span className="text-[10px] bg-gray-100 text-gray-400 px-2 py-0.5 rounded-xl font-medium inline-block select-none">
+                            💤 稼働なし
+                          </span>
+                        ) : data.hasUnsubmitted ? (
+                          <span className="text-[10px] bg-amber-50 text-amber-600 border border-amber-200 px-2 py-0.5 rounded-xl font-extrabold shadow-sm inline-block select-none animate-fadeIn">
+                            ⏳ 未提出あり
+                          </span>
+                        ) : (
+                          <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-xl font-extrabold shadow-sm inline-block select-none animate-fadeIn">
+                            ☑️ 全員提出済
+                          </span>
+                        )}
+                      </td>
+
+                      <td className="text-center tabular-nums text-gray-700 py-2.5">{data.memberCount} 名</td>
+                      <td className="text-center tabular-nums text-gray-500 py-2.5">{data.totalDays} 日分</td>
+                      <td className="text-center tabular-nums text-purple-600 py-2.5">{data.totalSessions} 回</td>
+                      <td className="text-right tabular-nums text-gray-800 font-mono py-2.5">{Math.round(data.totalHours * 100) / 100} 時間</td>
+                      {currentUserRole === "owner" && (
+                        <td className="text-right pr-6 tabular-nums text-emerald-600 font-mono text-[13px] font-black py-2.5">
+                          ¥{data.totalReward.toLocaleString()}
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )
       )}
 
@@ -450,7 +451,7 @@ export default function TabSummary({
             </div>
             <div className="space-y-1">
               <h4 className="text-base font-black text-gray-900 tracking-tight">MEMBER-S 一括リマインド通知</h4>
-              <p className="text-xs font-bold text-gray-600">選択中メンバーの中から【未提出】の {modalData.targetCount} 名へ通知を送信しますか？</p>
+              <p className="text-xs font-bold text-gray-600">選択中メンバーの中から【未提出】の {modalData.targetCount} 名へ通知を送信しますか?</p>
               <div className="max-h-32 overflow-y-auto text-[10px] text-gray-400 font-mono bg-gray-50 p-2 rounded-xl border border-gray-100 text-left whitespace-pre-wrap mt-2">
                 {modalData.formattedMessage}
               </div>

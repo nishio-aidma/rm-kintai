@@ -9,7 +9,7 @@ import TabRecords from "./_components/TabRecords";
 import TabCsv from "./_components/TabCsv"; 
 import TabMembers from "./_components/TabMembers";
 import TabOrgChart from "./_components/TabOrgChart"; 
-// 💡 【大本命】新しく分割作成した TabSettings をここでインポート！
+// 分割インポート仕様を100%保持
 import TabSettings from "./_components/TabSettings";
 import EditModal from "./_components/EditModal";
 
@@ -54,7 +54,7 @@ export default function AdminPage() {
   const [userRole, setUserRole] = useState<"admin" | "owner">("admin");
   const [myDepartment, setMyDepartment] = useState<string>("");
   
-  // 👑 組織図タブ「"org"」に加えて、「"settings"」を公式メニューとして登録！
+  // activeTabの選択肢の仕様を100%保持
   const [activeTab, setActiveTab] = useState<"summary" | "records" | "members" | "csv" | "org" | "settings">("records");
 
   const [attendanceRecords, setAttendanceRecords] = useState<AdminAttendanceRecord[]>([]);
@@ -121,7 +121,10 @@ export default function AdminPage() {
               setActiveTab("summary");
             } else if (meta && meta.role === "admin") {
               setUserRole("admin");
-              setMyDepartment(meta.department || "");
+              const deptStr = meta.department || "";
+              setMyDepartment(deptStr);
+              // 💡 【機能追加】adminの場合は、集計時の初期選択チームを全員(all)ではなく「自チーム名」に自動設定
+              setFilterDepartment(deptStr);
               setActiveTab("records");
             } else {
               // 管理者権限のない一般ユーザーは安全にトップ画面へ戻す
@@ -393,7 +396,8 @@ export default function AdminPage() {
           </div>
 
           <div className="flex space-x-2 border-l border-gray-200 pl-6 text-sm font-bold">
-            {userRole === "owner" && (
+            {/* 💡 【解放】これまではowner限定だった「稼働実績」ボタンを、admin（チームリーダー）にも表示！ */}
+            {(userRole === "owner" || userRole === "admin") && (
               <button onClick={() => setActiveTab("summary")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "summary" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
                 稼働実績
               </button>
@@ -412,7 +416,7 @@ export default function AdminPage() {
                 CSVインポート
               </button>
             )}
-            {/* 👑 西尾さん（owner）限定のメニュー設定タブボタン */}
+            {/* 👑 西尾さん（owner）限定のメニュー設定タブボタン（仕様保持） */}
             {userRole === "owner" && (
               <button onClick={() => setActiveTab("settings")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "settings" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
                 オーナー設定
@@ -440,7 +444,8 @@ export default function AdminPage() {
                 </select>
               </div>
 
-              {activeTab === "summary" && userRole === "owner" && (
+              {/* 💡 【解放】集計用フィルターエリアの出現条件も admin にまで拡張 */}
+              {activeTab === "summary" && (userRole === "owner" || userRole === "admin") && (
                 <>
                   <div className="bg-gray-100 p-0.5 rounded-xl inline-flex border border-gray-200 shadow-inner border-l ml-2">
                     <button onClick={() => setViewMode("user")} className={`px-3 py-1 rounded-lg font-bold text-xs transition-all ${viewMode === "user" ? "bg-white text-gray-800 shadow-sm font-extrabold" : "text-gray-400 hover:text-gray-600"}`}>👤 user別</button>
@@ -461,7 +466,7 @@ export default function AdminPage() {
                       <div className="flex items-center space-x-1.5">
                         <span className="font-bold text-gray-400 text-[11px]">チーム絞り込み:</span>
                         <select value={filterDepartment} onChange={(e) => setFilterDepartment(e.target.value)} className="bg-gray-50 border border-gray-200 px-2.5 py-1 rounded-lg font-bold text-gray-700 focus:outline-none cursor-pointer text-xs h-8 shadow-sm">
-                          <option value="all">すべてのチームを表示</option>
+                          {userRole === "owner" && <option value="all">すべてのチームを表示</option>}
                           {uniqueDepartmentsForSelect.map(dept => (
                             <option key={dept} value={dept}>{dept}</option>
                           ))}
@@ -497,10 +502,11 @@ export default function AdminPage() {
           </div>
         )}
 
-        {activeTab === "summary" && userRole === "owner" && (
+        {/* 💡 【ガチガチのセキュリティ制限】adminが閲覧する際は、流出を防ぐためデータを自チーム(filteredAttendanceRecords / filteredMembers)に内部で完全自動制限！ */}
+        {activeTab === "summary" && (userRole === "owner" || userRole === "admin") && (
           <TabSummary 
-            attendanceRecords={attendanceRecords} 
-            members={members} 
+            attendanceRecords={filteredAttendanceRecords} 
+            members={filteredMembers} 
             selectedMonth={selectedMonth} 
             statusFilter={statusFilter}
             viewMode={viewMode}
@@ -547,7 +553,7 @@ export default function AdminPage() {
           <TabCsv handleCSVUpload={handleCSVUpload} members={members} />
         )}
 
-        {/* 👑 【大歓喜】分割した子コンポーネント TabSettings を呼び出す綺麗な記述！ */}
+        {/* 分割した子コンポーネント TabSettings を呼び出す仕様（完全保持） */}
         {activeTab === "settings" && userRole === "owner" && (
           <TabSettings setStatusMessage={setStatusMessage} />
         )}

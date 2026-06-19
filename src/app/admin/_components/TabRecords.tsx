@@ -2,6 +2,9 @@
 
 import { useState } from "react";
 import { MemberInfo } from "@/lib/attendanceRepository";
+// 💡 【新設】リポジトリファイルを汚さず、このファイルだけで「leaderVerified」を安全に直接更新するためのインポート
+import { doc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 
 interface AdminAttendanceRecord {
   id: string;
@@ -13,7 +16,8 @@ interface AdminAttendanceRecord {
   breakMinutes: number;
   workHours: number;
   submitted: boolean;
-  verified?: boolean; // 👑 メンバー自身が確認したフラグを読み込む
+  verified?: boolean; // 👑 メンバー自身が確認したフラグ（閲覧専用仕様を保持）
+  leaderVerified?: boolean; // 💡 【新設】リーダーが確認した独立フラグ
 }
 
 interface TabRecordsProps {
@@ -37,18 +41,45 @@ export default function TabRecords({
 }: TabRecordsProps) {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [createEmail, setCreateEmail] = useState("");
-  const [createDate, setCreateDate] = useState("");
+  
+  // 💡 【仕様保持】勤務日の初期値を最初から「当日（今日）」の自動入力状態に設定
+  const [createDate, setCreateDate] = useState(() => {
+    const now = new Date();
+    return now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, '0') + "-" + String(now.getDate()).padStart(2, '0');
+  });
   const [createStart, setCreateStart] = useState("09:00");
   const [createEnd, setCreateEnd] = useState("18:00");
   const [createBreak, setCreateBreak] = useState<number>(60);
 
-  // 👑 代理削除用リッチ確認モーダルのステート
+  // 👑 代理削除用リッチ確認モーダルのステート（仕様保持）
   const [deleteModal, setDeleteModal] = useState<{ isOpen: boolean; recordId: string; name: string; date: string }>({
     isOpen: false,
     recordId: "",
     name: "",
     date: ""
   });
+
+  // 💡 【新設】新項目「リーダー確認」のボタンをポチッと押したときに、別フィールドを綺麗に反転トグルさせる関数
+  const handleToggleLeaderVerify = async (id: string, currentStatus: boolean) => {
+    try {
+      const nextStatus = !currentStatus;
+      setStatusMessage(nextStatus ? "リーダー確認を確定中..." : "確認を解除中...");
+      
+      // 💡 データベース上の「leaderVerified」フィールドだけをピンポイントで安全に更新！
+      const recordRef = doc(db, "attendance_records", id);
+      await updateDoc(recordRef, {
+        leaderVerified: nextStatus,
+        updatedAt: serverTimestamp()
+      });
+      
+      setStatusMessage(nextStatus ? "リーダー確認を完了しました。" : "リーダー確認を解除しました。");
+      setTimeout(() => setStatusMessage(null), 3000);
+      await loadAllData(); // 画面を一括再ロード
+    } catch (error) {
+      setStatusMessage("⚠️ エラー：リーダー確認の更新に失敗しました。");
+      setTimeout(() => setStatusMessage(null), 4000);
+    }
+  };
 
   const handleSaveCreate = async () => {
     if (!createEmail) {
@@ -88,7 +119,6 @@ export default function TabRecords({
       const userNameStr = matchedMember ? matchedMember.name : createEmail.split("@")[0];
 
       setStatusMessage("新規データを保存中...");
-      // 既存のcreateRecordByAdminを呼び出す
       const { attendanceRepository: repo } = require("@/lib/attendanceRepository");
       await repo.createRecordByAdmin(createEmail, userNameStr, {
         workDate: createDate,
@@ -98,8 +128,9 @@ export default function TabRecords({
       });
 
       setShowCreateModal(false);
+      const now = new Date();
+      setCreateDate(now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, '0') + "-" + String(now.getDate()).padStart(2, '0'));
       setCreateEmail("");
-      setCreateDate("");
       setCreateStart("09:00");
       setCreateEnd("18:00");
       setCreateBreak(60);
@@ -112,14 +143,27 @@ export default function TabRecords({
     }
   };
 
+  // 💡 【新設】現在表示されているリストの中に、リーダー確認が「未確認」のものが1件でもあるか自動判定
+  const hasUnverifiedRecords = displayedRecords.some(record => !record.leaderVerified);
+
   return (
     <div className="space-y-3 animate-fadeIn">
       
+      {/* 💡 【新設】リーダー確認が未承認のデータが残っている場合だけ最上部に出現するポップな警告メッセージ */}
+      {hasUnverifiedRecords && (
+        <div className="bg-amber-50 text-amber-900 border-2 border-amber-200 p-4 rounded-2xl text-xs font-bold animate-fadeIn flex items-center space-x-2 shadow-sm shadow-amber-50下">
+          <span className="text-base">⏳</span>
+          <p>
+            担当チーム内に <span className="text-amber-700 underline font-black">リーダー未確認の稼働記録</span> が残っています。内容に問題がなければ「確認する」ボタンを押して確定させてください。
+          </p>
+        </div>
+      )}
+      
       <div className="flex items-center justify-between bg-gray-50 p-2.5 rounded-xl border border-gray-100">
-        <p className="text-gray-400 font-medium text-[11px]">各メンバーが自身の画面で「間違いありません」と確認した状態がリアルタイムで反映されます。</p>
+        <p className="text-gray-400 font-medium text-[11px]">各メンバーが確認しているかどうかの状態はこれまで通り表示し、それに対してリーダー確認の項目を新設しました。</p>
         <button 
           onClick={() => setShowCreateModal(true)} 
-          className="bg-emerald-400 hover:bg-emerald-500 text-white font-bold px-3 py-1.5 rounded-lg shadow-sm transition-all flex items-center space-x-1"
+          className="bg-emerald-400 hover:bg-emerald-500 text-white font-bold px-3 py-1.5 rounded-lg shadow-sm transition-all flex items-center space-x-1 cursor-pointer"
         >
           <span>➕ 稼働記録を新規追加</span>
         </button>
@@ -139,8 +183,9 @@ export default function TabRecords({
                 <th className="py-2">業務終了</th>
                 <th className="py-2">休憩</th>
                 <th className="py-2">実働時間</th>
-                {/* 👑 本人が確認したステータスを見るだけの列 */}
+                {/* 💡 要件通り、本人確認状況をそのまま残し、リーダー確認を新設！ */}
                 <th className="py-2 text-center w-28">本人確認状況</th>
+                <th className="py-2 text-center w-36">リーダー確認</th>
                 <th className="py-2 text-right pr-5 w-16">削除</th>
               </tr>
             </thead>
@@ -148,6 +193,7 @@ export default function TabRecords({
               {displayedRecords.map((record) => {
                 const meta = getMemberMeta(record.email);
                 const isVerified = !!record.verified;
+                const isLeaderVerified = !!record.leaderVerified;
 
                 return (
                   <tr key={record.id} className="hover:bg-gray-50/30 transition-colors">
@@ -155,7 +201,7 @@ export default function TabRecords({
                     <td className="py-2 pl-4 text-center">
                       <button 
                         onClick={() => handleOpenEditModal(record)} 
-                        className="text-gray-400 hover:text-emerald-500 p-1.5 rounded-md hover:bg-emerald-50 transition-all block mx-auto shadow-sm border border-gray-100 bg-white"
+                        className="text-gray-400 hover:text-emerald-500 p-1.5 rounded-md hover:bg-emerald-50 transition-all block mx-auto shadow-sm border border-gray-100 bg-white cursor-pointer"
                         title="この記録を修正する"
                       >
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.4} stroke="currentColor" className="w-3.5 h-3.5">
@@ -175,16 +221,39 @@ export default function TabRecords({
                     <td className="py-2 tabular-nums text-gray-400">{record.breakMinutes} 分</td>
                     <td className="py-2 tabular-nums font-bold text-gray-700">{record.workHours} 時間</td>
                     
-                    {/* 👑 【閲覧専用リニューアル】管理者側からはボタンではなく「状態バッジ」として表示 */}
+                    {/* 👑 本人確認状況（これまで通り、ワーカー自身が確定したかを見るだけの閲覧バッジ） */}
                     <td className="py-2 text-center">
                       {isVerified ? (
-                        <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-0.5 rounded-xl font-extrabold shadow-sm inline-block">
+                        <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-0.5 rounded-xl font-extrabold shadow-sm inline-block select-none">
                           ✅ 確認済み
                         </span>
                       ) : (
-                        <span className="text-[10px] bg-gray-100 text-gray-400 px-2.5 py-0.5 rounded-xl font-bold inline-block">
+                        <span className="text-[10px] bg-gray-100 text-gray-400 px-2.5 py-0.5 rounded-xl font-bold inline-block select-none">
                           ⏳ 未確認
                         </span>
+                      )}
+                    </td>
+
+                    {/* 💡 【新設】リーダー確認項目（リーダーがポチポチ上書き・解除ができるインタラクティブなトグルボタン） */}
+                    <td className="py-2 text-center">
+                      {isLeaderVerified ? (
+                        <button
+                          onClick={() => handleToggleLeaderVerify(record.id, true)}
+                          className="text-[10px] bg-purple-50 hover:bg-amber-50 text-purple-700 hover:text-amber-700 border border-purple-200 hover:border-amber-300 px-2.5 py-0.5 rounded-xl font-extrabold shadow-sm inline-block transition-all group cursor-pointer"
+                          title="リーダー確認を解除して未確認に戻します"
+                        >
+                          <span className="group-hover:hidden">🔮 承認済み</span>
+                          <span className="hidden group-hover:inline">🔄 解除する</span>
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleToggleLeaderVerify(record.id, false)}
+                          disabled={record.endTime === ""}
+                          className="text-[10px] bg-white hover:bg-purple-600 text-gray-500 hover:text-white border border-gray-200 hover:border-purple-600 px-2.5 py-0.5 rounded-xl font-bold shadow-sm transition-all disabled:opacity-20 disabled:pointer-events-none cursor-pointer"
+                          title="このレコードをリーダーとして承認します"
+                        >
+                          🔍 確認する
+                        </button>
                       )}
                     </td>
                     
@@ -192,10 +261,10 @@ export default function TabRecords({
                     <td className="py-2 text-right pr-4">
                       <button 
                         onClick={() => setDeleteModal({ isOpen: true, recordId: record.id, name: meta.name, date: record.workDate })} 
-                        className="text-gray-400 hover:text-red-500 p-1.5 rounded-md hover:bg-red-50 transition-all inline-block shadow-sm border border-gray-100 bg-white"
+                        className="text-gray-400 hover:text-red-500 p-1.5 rounded-md hover:bg-red-50 transition-all inline-block shadow-sm border border-gray-100 bg-white cursor-pointer"
                         title="この記録を削除する"
                       >
-                        <svg xmlns="http://www.w3.org/2000/xl" fill="none" viewBox="0 0 24 24" strokeWidth={2.2} stroke="currentColor" className="w-3.5 h-3.5">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.2} stroke="currentColor" className="w-3.5 h-3.5">
                           <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.34 6m-4.02 0l-.34-6M4.5 6.375a.5.5 0 01.5-.5h14a.5.5 0 01.5.5v1.5a.5.5 0 01-.5.5H5a.5.5 0 01-.5-.5v-1.5zM10.5 4.5a.5.5 0 01.5-.5h2a.5.5 0 01.5.5v1.375H10.5V4.5zm-5 4.125h13v11.25a2.25 2.25 0 01-2.25 2.25H7.75A2.25 2.25 0 015.5 19.875V8.625z" />
                         </svg>
                       </button>
@@ -214,7 +283,7 @@ export default function TabRecords({
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 text-xs font-sans">
           <div className="bg-white rounded-2xl p-6 max-w-sm w-full mx-4 shadow-xl border border-gray-100 text-left space-y-4 animate-fadeIn">
             <div>
-              <h4 className="text-sm font-bold text-gray-800">稼働記録の代理手動追加</h4>
+              <h4 className="text-sm font-bold text-gray-800">稼慢記録の代理手動追加</h4>
               <p className="text-[10px] text-gray-400 mt-0.5">指定したメンバーの稼働データを裏側から強制作成します</p>
             </div>
 
@@ -235,7 +304,7 @@ export default function TabRecords({
 
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-gray-400">勤務日</label>
-                <input type="date" value={createDate} onChange={(e) => setCreateDate(e.target.value)} className="w-full border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-700 font-medium text-xs focus:outline-none" />
+                <input type="date" value={createDate} onChange={(e) => setCreateDate(e.target.value)} className="w-full border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-700 font-medium text-xs focus:outline-none cursor-pointer" />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -266,14 +335,14 @@ export default function TabRecords({
             </div>
 
             <div className="flex space-x-2 pt-2">
-              <button onClick={() => setShowCreateModal(false)} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold py-2 rounded-lg transition-all">キャンセル</button>
-              <button onClick={handleSaveCreate} className="flex-1 bg-emerald-400 hover:bg-emerald-50 text-white font-bold py-2 rounded-lg transition-all shadow-sm">データを手動作成</button>
+              <button onClick={() => setShowCreateModal(false)} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold py-2 rounded-lg transition-all cursor-pointer">キャンセル</button>
+              <button onClick={handleSaveCreate} className="flex-1 bg-emerald-400 hover:bg-emerald-50 text-white font-bold py-2 rounded-lg transition-all shadow-sm cursor-pointer">データを手動作成</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* 👑 代理削除用リッチ確認モーダル */}
+      {/* 👑 代理削除用リッチ確認モーダル（仕様保持） */}
       {deleteModal.isOpen && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[999] animate-fadeIn font-sans">
           <div className="bg-white rounded-3xl p-6 max-w-sm w-full mx-4 shadow-2xl border border-gray-100 text-center space-y-4 animate-scaleUp">
@@ -289,14 +358,14 @@ export default function TabRecords({
               </p>
             </div>
             <div className="flex space-x-2 pt-1">
-              <button onClick={() => setDeleteModal({ isOpen: false, recordId: "", name: "", date: "" })} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-600 text-xs font-bold py-2 rounded-xl transition-all">キャンセル</button>
+              <button onClick={() => setDeleteModal({ isOpen: false, recordId: "", name: "", date: "" })} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-600 text-xs font-bold py-2 rounded-xl transition-all cursor-pointer">キャンセル</button>
               <button 
                 onClick={async () => {
                   const targetId = deleteModal.recordId;
                   setDeleteModal({ isOpen: false, recordId: "", name: "", date: "" });
                   await handleDeleteRecord(targetId);
                 }} 
-                className="flex-1 bg-rose-500 hover:bg-rose-600 text-white text-xs font-black py-2 rounded-xl transition-all shadow-sm shadow-rose-100"
+                className="flex-1 bg-rose-500 hover:bg-rose-600 text-white text-xs font-black py-2 rounded-xl transition-all shadow-sm shadow-rose-100 cursor-pointer"
               >
                 🗑️ 削除する
               </button>

@@ -95,7 +95,7 @@ export default function LoginPage() {
       <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-sm border border-gray-100 space-y-6 text-center">
 
         <div>
-          <h2 className="text-3xl font-black text-gray-800 tracking-tight">あ～るえむ</h2>
+          <h2 className="text-3xl font-black text-gray-800 tracking-tight">ダコック</h2>
           <p className="text-gray-400 mt-1.5 font-medium">RM事業部 業務管理システム</p>
         </div>
 

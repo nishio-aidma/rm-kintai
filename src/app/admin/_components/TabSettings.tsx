@@ -1,10 +1,25 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { attendanceRepository } from "@/lib/attendanceRepository";
-// 💡 【修正】関数内の不安定な require を廃止し、上部で完全に安全な静的インポートに切り替え
-import { doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { attendanceRepository, MemberInfo } from "@/lib/attendanceRepository";
+// 💡 公式関数を上部で完全に安全な静的インポートに集約
+import { doc, setDoc, serverTimestamp, collection, getDocs, deleteDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+
+// 固定メンバー用の型定義
+interface FixedMember {
+  id: string;
+  managementNumber: string;
+  lastName: string;
+  lastNameKana: string;
+  firstName: string;
+  firstNameKana: string;
+  email: string;
+  hourlyRate: number;
+  media: string;
+  createdAtStr: string;
+  name: string;
+}
 
 interface TabSettingsProps {
   setStatusMessage: (msg: string | null) => void;
@@ -15,27 +30,42 @@ export default function TabSettings({ setStatusMessage, loadAllParentData }: Tab
   const [footerMessageInput, setFooterMessageInput] = useState<string>("");
   const [isSavingSettings, setIsSavingSettings] = useState<boolean>(false);
 
-  // 一般管理者(admin)に表示させるメニューをON/OFFするためのチェック配列ステート（仕様保持）
+  // 一般管理者(admin)に表示させるメニューをON/OFFするためのチェック配列ステート
   const [adminAllowedTabs, setAdminAllowedTabs] = useState<string[]>(["summary", "records", "org"]);
 
-  // 画面を開いた瞬間に、現在のメッセージとadmin用許可タブ設定をFirebaseから同時回収
-  useEffect(() => {
-    const loadSettings = async () => {
-      try {
-        const settings = await attendanceRepository.getDashboardSettings();
-        if (settings) {
-          if (settings.footerMessage) {
-            setFooterMessageInput(settings.footerMessage);
-          }
-          if (settings.adminAllowedTabs) {
-            setAdminAllowedTabs(settings.adminAllowedTabs);
-          }
-        }
-      } catch (error) {
-        console.error("設定の読み込みに失敗しました:", error);
+  // 🔒 固定メンバー管理用のステート
+  const [fixedMembers, setFixedMembers] = useState<FixedMember[]>([]);
+  const [lastName, setLastName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastNameKana, setLastNameKana] = useState("");
+  const [firstNameKana, setFirstNameKana] = useState("");
+  const [memberEmail, setMemberEmail] = useState("");
+  const [hourlyRate, setHourlyRate] = useState<number>(0);
+
+  // 画面を開いた瞬間に、すべての設定データと固定メンバー一覧をFirestoreから同時回収
+  const loadAllSettingsAndMembers = async () => {
+    try {
+      // 1. ダッシュボード設定の取得
+      const settings = await attendanceRepository.getDashboardSettings();
+      if (settings) {
+        if (settings.footerMessage) setFooterMessageInput(settings.footerMessage);
+        if (settings.adminAllowedTabs) setAdminAllowedTabs(settings.adminAllowedTabs);
       }
-    };
-    loadSettings();
+
+      // 2. 固定メンバー一覧の取得
+      const querySnapshot = await getDocs(collection(db, "fixed_members"));
+      const list: FixedMember[] = [];
+      querySnapshot.forEach((docSnap) => {
+        list.push({ id: docSnap.id, ...docSnap.data() } as FixedMember);
+      });
+      setFixedMembers(list);
+    } catch (error) {
+      console.error("設定または固定メンバーの読み込みに失敗しました:", error);
+    }
+  };
+
+  useEffect(() => {
+    loadAllSettingsAndMembers();
   }, []);
 
   const handleCheckboxChange = (tabName: string) => {
@@ -46,24 +76,22 @@ export default function TabSettings({ setStatusMessage, loadAllParentData }: Tab
     }
   };
 
-  // 💡 安全なインポートを適用してスッキリと高速化した保存関数
+  // ダッシュボード・メニュー権限の保存関数
   const handleSaveSettings = async () => {
     setIsSavingSettings(true);
     try {
       setStatusMessage("ダッシュボード設定を更新中...");
       
-      // 💡 上部で綺麗にインポートしたため、エラーを起こさず爆速でFirestoreへ書き込みが走ります
       const docRef = doc(db, "settings", "dashboard");
       await setDoc(docRef, { 
         footerMessage: footerMessageInput,
-        adminAllowedTabs: adminAllowedTabs, // チェックしたタブの配列をまとめて保存！
+        adminAllowedTabs: adminAllowedTabs,
         updatedAt: serverTimestamp() 
       }, { merge: true });
 
       setStatusMessage("✨ ダッシュボードメッセージ ＆ 管理者メニュー表示権限を正常に更新しました！");
       setTimeout(() => setStatusMessage(null), 4000);
       
-      // 親ファイルの権限状態も即座に再同期させる
       await loadAllParentData();
     } catch (error) {
       console.error("設定の保存エラー:", error);
@@ -74,11 +102,158 @@ export default function TabSettings({ setStatusMessage, loadAllParentData }: Tab
     }
   };
 
-  return (
-    <div className="space-y-4 animate-fadeIn text-slate-800">
+  // 👑 固定メンバーの動的登録
+  const handleRegisterFixedMember = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!memberEmail.trim() || !lastName.trim() || !firstName.trim()) {
+      setStatusMessage("⚠️ 必須項目（苗字・名前・メール）を入力してください。");
+      setTimeout(() => setStatusMessage(null), 3000);
+      return;
+    }
+
+    const cleanEmail = memberEmail.trim().toLowerCase();
+    const docId = `fixed-${Date.now()}`;
+
+    const newMember: FixedMember = {
+      id: docId,
+      managementNumber: "固定枠",
+      lastName: lastName.trim(),
+      lastNameKana: lastNameKana.trim(),
+      firstName: firstName.trim(),
+      firstNameKana: firstNameKana.trim(),
+      email: cleanEmail,
+      hourlyRate: Number(hourlyRate) || 0,
+      media: "オーナー直接登録",
+      createdAtStr: new Date().toLocaleDateString("ja-JP"),
+      name: `${lastName.trim()} ${firstName.trim()}`
+    };
+
+    try {
+      await setDoc(doc(db, "fixed_members", cleanEmail), newMember);
       
-      {/* 一般管理者(admin)のメニュー表示カスタム */}
-      <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-4">
+      // フォームリセット
+      setLastName("");
+      setFirstName("");
+      setLastNameKana("");
+      setFirstNameKana("");
+      setMemberEmail("");
+      setHourlyRate(0);
+
+      setStatusMessage("👑 固定メンバーを登録しました。CSVインポート時に自動マージされます。");
+      setTimeout(() => setStatusMessage(null), 4000);
+      
+      await loadAllSettingsAndMembers();
+      await loadAllParentData();
+    } catch (error) {
+      setStatusMessage("⚠️ エラー：固定メンバーの登録に失敗しました。");
+      setTimeout(() => setStatusMessage(null), 4000);
+    }
+  };
+
+  // 👑 固定メンバーの保護解除（削除）
+  const handleDeleteFixedMember = async (targetEmail: string) => {
+    try {
+      await deleteDoc(doc(db, "fixed_members", targetEmail));
+      setStatusMessage("✕ 固定メンバーの保護を解除しました。");
+      setTimeout(() => setStatusMessage(null), 3000);
+      
+      await loadAllSettingsAndMembers();
+      await loadAllParentData();
+    } catch (error) {
+      setStatusMessage("⚠️ エラー：保護解除に失敗しました。");
+      setTimeout(() => setStatusMessage(null), 4000);
+    }
+  };
+
+  return (
+    <div className="space-y-6 animate-fadeIn text-slate-800 text-xs">
+      
+      {/* 1. 登録フォーム（インポート保護機能） */}
+      <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-4 text-left">
+        <div>
+          <h3 className="text-base font-extrabold text-gray-800 tracking-tight">📌 インポート保護・固定メンバー追加</h3>
+          <p className="text-gray-400 mt-0.5 text-xs">
+            ここで登録したメンバーは、アサインシステムCSVをインポートした際、上書き消去されずに**必ずマスタへ自動合流・保護**されます。
+          </p>
+        </div>
+
+        <form onSubmit={handleRegisterFixedMember} className="space-y-4 font-bold text-gray-500">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-[10px] text-gray-400 block mb-1">苗字（必須）</label>
+              <input type="text" value={lastName} onChange={(e) => setLastName(e.target.value)} placeholder="西尾" className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:bg-white focus:border-purple-500" />
+            </div>
+            <div>
+              <label className="text-[10px] text-gray-400 block mb-1">名前（必須）</label>
+              <input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} placeholder="圭史" className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:bg-white focus:border-purple-500" />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-[10px] text-gray-400 block mb-1">苗字カナ</label>
+              <input type="text" value={lastNameKana} onChange={(e) => setLastNameKana(e.target.value)} placeholder="ニシオ" className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:bg-white focus:border-purple-500" />
+            </div>
+            <div>
+              <label className="text-[10px] text-gray-400 block mb-1">名前カナ</label>
+              <input type="text" value={firstNameKana} onChange={(e) => setFirstNameKana(e.target.value)} placeholder="ケイジ" className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:bg-white focus:border-purple-500" />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-4">
+            <div className="col-span-2">
+              <label className="text-[10px] text-gray-400 block mb-1">メールアドレス（必須 / ログインキー）</label>
+              <input type="email" value={memberEmail} onChange={(e) => setMemberEmail(e.target.value)} placeholder="nishio@aidma-hd.jp" className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:bg-white focus:border-purple-500" />
+            </div>
+            <div>
+              <label className="text-[10px] text-gray-400 block mb-1">管理番号（自動固定）</label>
+              <input type="text" value="固定枠" className="w-full bg-gray-100 border border-gray-200 rounded-xl px-3 py-2 text-xs font-semibold text-gray-400 cursor-not-allowed" disabled />
+            </div>
+          </div>
+
+          <div className="flex justify-end pt-1">
+            <button type="submit" className="bg-purple-600 hover:bg-purple-700 text-white font-black px-6 py-2.5 rounded-xl shadow-xl shadow-purple-100 hover:scale-[1.02] active:scale-95 transition-all cursor-pointer">
+              🛡️ 固定メンバーとしてシステムに登録
+            </button>
+          </div>
+        </form>
+
+        {/* 保護ユーザー一覧サブテーブル */}
+        <div className="pt-4 border-t border-gray-100 space-y-2">
+          <h4 className="font-extrabold text-gray-700 text-xs">🔒 現在保護されている固定ユーザー一覧 ({fixedMembers.length}名)</h4>
+          {fixedMembers.length === 0 ? (
+            <p className="text-gray-400 italic py-2">登録されている固定メンバーはありません。</p>
+          ) : (
+            <div className="border border-gray-100 rounded-xl overflow-hidden bg-gray-50/30">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-100 text-gray-400 font-bold text-[10px]">
+                    <th className="p-2.5 pl-4">氏名</th>
+                    <th className="p-2.5">メールアドレス</th>
+                    <th className="p-2.5 text-center w-24">操作</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50 text-gray-600 font-semibold text-xs">
+                  {fixedMembers.map((m) => (
+                    <tr key={m.email} className="hover:bg-white transition-colors">
+                      <td className="p-2.5 pl-4 font-black text-gray-800">{m.name}</td>
+                      <td className="p-2.5 font-mono text-gray-500 text-[11px]">{m.email}</td>
+                      <td className="p-2.5 text-center">
+                        <button type="button" onClick={() => handleDeleteFixedMember(m.email)} className="text-rose-500 hover:text-rose-700 hover:bg-rose-50 px-2 py-1 rounded-md font-bold transition-all cursor-pointer">
+                          保護解除
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 2. 一般管理者(admin)のメニュー表示カスタム */}
+      <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-4 text-left">
         <div>
           <h3 className="text-base font-extrabold text-gray-800 tracking-tight">🛠️ 一般管理者(admin)のメニュー表示カスタム</h3>
           <p className="text-gray-400 text-xs mt-0.5">
@@ -145,8 +320,8 @@ export default function TabSettings({ setStatusMessage, loadAllParentData }: Tab
         </div>
       </div>
 
-      {/* 下部の掲示板メッセージ編集 */}
-      <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-4">
+      {/* 3. 下部の掲示板メッセージ編集 */}
+      <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-4 text-left">
         <div>
           <h3 className="text-base font-extrabold text-gray-800 tracking-tight">📢 メイン打刻画面の掲示板メッセージ編集</h3>
           <p className="text-gray-400 text-xs mt-0.5">ワーカーさんの打刻画面（最下部）に常設されている「ポップな黄色の吹き出しメッセージ」をリアルタイムに変更・更新できます。</p>

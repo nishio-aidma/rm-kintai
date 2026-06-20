@@ -27,7 +27,7 @@ export interface MemberInfo {
   loginEmail?: string;
   role?: "user" | "admin";
   isOwnerProxy?: boolean; // 👑 owner代理フラグ
-  leadingTeams?: string[]; // 👑 【新設】リーダーを担当するチーム名の配列（所属外アサイン・兼任に対応）
+  leadingTeams?: string[]; // 👑 リーダーを担当するチーム名の配列
 }
 
 export interface AccountRequest {
@@ -54,9 +54,9 @@ export const attendanceRepository = {
         workHours: 0,
         deleted: false,
         submitted: false,
-        verified: false, // 👑 初期値は未確認
+        verified: false,
         createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
+        updated: serverTimestamp(),
       };
       const docRef = await addDoc(attendanceCollection, newRecord);
       return docRef.id;
@@ -84,7 +84,6 @@ export const attendanceRepository = {
           const startTotalMinutes = startH * 60 + startM;
           let endTotalMinutes = endH * 60 + endM;
           
-          // 🎯日マタギ対応：終了時刻が開始時刻以下の場合は翌日とみなし、24時間（1440分）を足す
           if (endTotalMinutes <= startTotalMinutes) {
             endTotalMinutes += 24 * 60;
           }
@@ -169,7 +168,6 @@ export const attendanceRepository = {
       const startTotalMinutes = startH * 60 + startM;
       let endTotalMinutes = endH * 60 + endM;
       
-      // 🎯日マタギ対応：終了時刻が開始時刻以下の場合は翌日とみなし、24時間（1440分）を足す
       if (endTotalMinutes <= startTotalMinutes) {
         endTotalMinutes += 24 * 60;
       }
@@ -205,7 +203,6 @@ export const attendanceRepository = {
       const startTotalMinutes = startH * 60 + startM;
       let endTotalMinutes = endH * 60 + endM;
 
-      // 🎯日マタギ対応：終了時刻が開始時刻以下の場合は翌日とみなし、24時間（1440分）を足す
       if (endTotalMinutes <= startTotalMinutes) {
         endTotalMinutes += 24 * 60;
       }
@@ -226,7 +223,7 @@ export const attendanceRepository = {
         workHours: workHours,
         deleted: false,
         submitted: false,
-        verified: false, // 👑 初期値
+        verified: false,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       };
@@ -248,7 +245,7 @@ export const attendanceRepository = {
         fetchedRecords.push({ 
           id: doc.id, 
           ...data,
-          verified: data.verified || false // 👑 過去のデータも含めて安全にフラグを読み込む
+          verified: data.verified || false
         }); 
       });
       return fetchedRecords;
@@ -257,7 +254,7 @@ export const attendanceRepository = {
     }
   },
 
-  // 👑 【新設】「この稼働セクションに間違いがない」という確認ステートを永久保存するための関数
+  // 👑 確認ステート更新
   updateRecordVerification: async (stampId: string, isVerified: boolean) => {
     try {
       const recordRef = doc(db, "attendance_records", stampId);
@@ -283,14 +280,14 @@ export const attendanceRepository = {
         let currentLoginEmail = "";
         let currentRole = "user";
         let currentOwnerProxy = false;
-        let currentLeadingTeams: string[] = []; // 👑 インポート時にリーダー情報を保護
+        let currentLeadingTeams: string[] = [];
         if (snap.exists()) {
           const d = snap.data();
           currentDept = d.department || "";
           currentLoginEmail = d.loginEmail || "";
           currentRole = d.role || "user";
           currentOwnerProxy = d.isOwnerProxy || false;
-          currentLeadingTeams = d.leadingTeams || []; // 👑 退避
+          currentLeadingTeams = d.leadingTeams || [];
         }
         
         batch.set(memberRef, {
@@ -309,7 +306,7 @@ export const attendanceRepository = {
           loginEmail: currentLoginEmail,
           role: currentRole,
           isOwnerProxy: currentOwnerProxy,
-          leadingTeams: currentLeadingTeams, // 👑 復元
+          leadingTeams: currentLeadingTeams,
           updatedAt: serverTimestamp()
         }, { merge: true });
       }
@@ -320,21 +317,30 @@ export const attendanceRepository = {
     }
   },
 
-  // 10. 全メンバー情報の取得
+  // 👑 10. 【仕様大改造】通常メンバーマスタ ＋ オーナー固定メンバー枠を完全自動合流して配給
   getAllMembers: async (): Promise<MemberInfo[]> => {
     try {
-      const querySnapshot = await getDocs(collection(db, "members"));
-      const members: MemberInfo[] = [];
-      querySnapshot.forEach((doc) => {
+      // 通常マスタと固定枠を並列で最速同時ロード
+      const [membersSnapshot, fixedSnapshot] = await Promise.all([
+        getDocs(collection(db, "members")),
+        getDocs(collection(db, "fixed_members"))
+      ]);
+
+      // メールアドレスをキーにして重複を自動クリーンアップするMapを生成
+      const allMembersMap = new Map<string, MemberInfo>();
+
+      // A. 先に通常のCSVインポート枠をMapに展開
+      membersSnapshot.forEach((doc) => {
         const data = doc.data();
-        members.push({
+        const email = doc.id;
+        allMembersMap.set(email, {
           id: data.id || "",
           managementNumber: data.managementNumber || "---",
           lastName: data.lastName || "",
           lastNameKana: data.lastNameKana || "",
           firstName: data.firstName || "",
           firstNameKana: data.firstNameKana || "",
-          email: doc.id,
+          email: email,
           hourlyRate: data.hourlyRate || 0,
           media: data.media || "",
           createdAtStr: data.createdAtStr || "",
@@ -343,10 +349,36 @@ export const attendanceRepository = {
           loginEmail: data.loginEmail || "",
           role: data.role || "user",
           isOwnerProxy: data.isOwnerProxy || false,
-          leadingTeams: data.leadingTeams || [], // 👑 安全に配列として取得
+          leadingTeams: data.leadingTeams || [],
         });
       });
-      return members;
+
+      // B. 次にオーナー固定登録枠をMapに流し込む（重複があった場合は固定枠側の設定を安全に優先）
+      fixedSnapshot.forEach((doc) => {
+        const data = doc.data();
+        const email = doc.id;
+        allMembersMap.set(email, {
+          id: data.id || "",
+          managementNumber: data.managementNumber || "固定枠",
+          lastName: data.lastName || "",
+          lastNameKana: data.lastNameKana || "",
+          firstName: data.firstName || "",
+          firstNameKana: data.firstNameKana || "",
+          email: email,
+          hourlyRate: data.hourlyRate || 0,
+          media: data.media || "オーナー直接登録",
+          createdAtStr: data.createdAtStr || "",
+          name: data.name || "",
+          department: data.department || "",
+          loginEmail: data.loginEmail || "",
+          role: data.role || "user",
+          isOwnerProxy: data.isOwnerProxy || false,
+          leadingTeams: data.leadingTeams || [],
+        });
+      });
+
+      // 全画面（組織図等含む）に合流済みの配列としてデリバリー
+      return Array.from(allMembersMap.values());
     } catch (error) {
       return [];
     }
@@ -372,7 +404,7 @@ export const attendanceRepository = {
     }
   },
 
-  // 12. 画面からポチッとadmin権限をトグル切り替えするためのリポジトリ関数
+  // 12. 権限トグル
   updateMemberRole: async (email: string, newRole: "user" | "admin") => {
     try {
       const memberRef = doc(db, "members", email);
@@ -387,7 +419,7 @@ export const attendanceRepository = {
     }
   },
 
-  // owner代理権限の☑ボックス切り替え用リポジトリ関数
+  // オーナー代理権限切り替え
   updateMemberOwnerProxy: async (email: string, isProxy: boolean) => {
     try {
       const memberRef = doc(db, "members", email);
@@ -401,7 +433,7 @@ export const attendanceRepository = {
     }
   },
 
-  // 👑 組織図からポチポチと担当リーダー（leadingTeams型配列）を更新するためのリポジトリ関数
+  // 兼任リーダーアサイン
   updateMemberLeadingTeams: async (email: string, leadingTeams: string[]) => {
     try {
       const memberRef = doc(db, "members", email);
@@ -415,7 +447,7 @@ export const attendanceRepository = {
     }
   },
 
-  // 👑 【新設】子チーム（下部階層）のデータを Firebase（Firestore）に永久保存するためのリポジトリ関数
+  // 子チームデータの保存
   saveSubTeams: async (parentDept: string, subTeamsList: any[]) => {
     try {
       const docRef = doc(db, "org_sub_teams", parentDept);
@@ -429,7 +461,7 @@ export const attendanceRepository = {
     }
   },
 
-  // 修正箇所：getSubTeams を以下の形に書き換えてください
+  // 子チームデータの取得
   getSubTeams: async (parentDept: string) => {
     try {
       const q = query(
@@ -437,8 +469,6 @@ export const attendanceRepository = {
         where("department", "==", parentDept)
       );
       const querySnapshot = await getDocs(q);
-      
-      // ここをメンバーの「オブジェクト」を返す形に戻す（ログイン正常化のため）
       const members = querySnapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
@@ -447,7 +477,7 @@ export const attendanceRepository = {
       return [{
         id: parentDept,
         name: parentDept,
-        members: members // ここはメンバーのオブジェクト配列
+        members: members
       }];
     } catch (error) {
       console.error(`【レポジトリ確認】${parentDept} 取得エラー:`, error);
@@ -455,10 +485,13 @@ export const attendanceRepository = {
     }
   },
 
-  // 13. メールアドレスからメンバー情報を逆引き
+  // 👑 13. 【仕様大改造】ログイン認証用の逆引き処理でも固定メンバー(fixed_members)を徹底救済
   getMemberByEmail: async (loginEmail: string): Promise<MemberInfo | null> => {
     try {
-      const q = query(collection(db, "members"), or(where("loginEmail", "==", loginEmail), where("email", "==", loginEmail)));
+      const cleanEmail = loginEmail.trim().toLowerCase();
+
+      // ルートA: まずは通常の members コレクションからアカウントを検索
+      const q = query(collection(db, "members"), or(where("loginEmail", "==", cleanEmail), where("email", "==", cleanEmail)));
       const snap = await getDocs(q);
       if (!snap.empty) {
         const docData = snap.docs[0].data();
@@ -478,9 +511,35 @@ export const attendanceRepository = {
           loginEmail: docData.loginEmail || "",
           role: docData.role || "user",
           isOwnerProxy: docData.isOwnerProxy || false,
-          leadingTeams: docData.leadingTeams || [], // 👑 安全に配列として逆引き取得
+          leadingTeams: docData.leadingTeams || [],
         };
       }
+
+      // ルートB: 通常マスタで見つからなかった場合、固定メンバー(fixed_members)から直にデータがあるか最終救済検索
+      const fixedDocRef = doc(db, "fixed_members", cleanEmail);
+      const fixedSnap = await getDoc(fixedDocRef);
+      if (fixedSnap.exists()) {
+        const docData = fixedSnap.data();
+        return {
+          id: docData.id || "",
+          managementNumber: docData.managementNumber || "固定枠",
+          lastName: docData.lastName || "",
+          lastNameKana: docData.lastNameKana || "",
+          firstName: docData.firstName || "",
+          firstNameKana: docData.firstNameKana || "",
+          email: fixedSnap.id,
+          hourlyRate: docData.hourlyRate || 0,
+          media: docData.media || "オーナー直接登録",
+          createdAtStr: docData.createdAtStr || "",
+          name: docData.name || "",
+          department: docData.department || "",
+          loginEmail: docData.loginEmail || "",
+          role: docData.role || "user",
+          isOwnerProxy: docData.isOwnerProxy || false,
+          leadingTeams: docData.leadingTeams || [],
+        };
+      }
+
       return null;
     } catch (error) {
       return null;
@@ -524,7 +583,7 @@ export const attendanceRepository = {
     }
   },
 
-  // 👑 【新設】ダッシュボードのカスタムメッセージを取得する（大きな箱の内側に移動しました）
+  // 設定情報のロード
   getDashboardSettings: async () => {
     try {
       const docRef = doc(db, "settings", "dashboard");
@@ -532,13 +591,13 @@ export const attendanceRepository = {
       if (snap.exists()) {
         return snap.data();
       }
-      return { footerMessage: "今月予定していた業務がすべて終了しましたか？業務記録のページから業務記録の提出をお願いいたします！" };
+      return { footerMessage: "業務記録の提出をお願いいたします！" };
     } catch (error) {
       return { footerMessage: "業務記録の提出をお願いいたします！" };
     }
   },
 
-  // 👑 【新設】ダッシュボードのカスタムメッセージを保存する（大きな箱の内側に移動しました）
+  // 設定情報のセーブ
   saveDashboardSettings: async (message: string) => {
     try {
       const docRef = doc(db, "settings", "dashboard");

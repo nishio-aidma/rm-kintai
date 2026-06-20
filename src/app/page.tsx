@@ -179,12 +179,10 @@ export default function DashboardPage() {
     }
   };
 
-  // 💡 スピード改善：フリーズ画面(isLoading)を完全に撤廃し、最初からメイン画面の枠組みを表示する
   return (
     <div className="min-h-screen bg-gray-50 text-gray-800 font-sans">
       <header className="bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between shadow-sm">
         <div className="flex items-center space-x-3">
-          {/* 👑 テキストロゴをアイコン画像に差し替え */}
           <img 
             src="/icon_rmkintai.png" 
             alt="ダコック ロゴ" 
@@ -219,41 +217,48 @@ export default function DashboardPage() {
       </header>
 
       <main className="max-w-4xl mx-auto px-4 py-10 space-y-10">
-        {/* 時計・挨拶セクション */}
-        <div className="bg-white rounded-[40px] p-10 shadow-sm border border-gray-100 text-center space-y-4">
-          <p className="text-sm text-gray-400 font-bold uppercase tracking-widest">{formatDate(currentTime)}</p>
-          <h2 className="text-7xl font-black text-gray-800 tabular-nums tracking-tighter">{formatTime(currentTime)}</h2>
-          <div className="h-1.5 w-12 bg-emerald-400 mx-auto rounded-full my-4"></div>
-          <p className="text-2xl font-extrabold text-gray-700">
-            {userName ? `${userName} さん、今日もありがとうございます！` : "今日もありがとうございます！"}
-          </p>
-        </div>
+        
+        {/* 👑 統合メインコンテナ：日時・挨拶・打刻ボタンを一画面の1枠に集約 */}
+        <div className="bg-white rounded-[40px] p-8 sm:p-12 shadow-sm border border-gray-100 text-center space-y-10">
+          
+          {/* 時計・挨拶エリア */}
+          <div className="space-y-4">
+            {/* 💡 日付を text-sm から text-base へ一段階大きく最適化 */}
+            <p className="text-base text-gray-400 font-bold uppercase tracking-widest">{formatDate(currentTime)}</p>
+            <h2 className="text-7xl font-black text-gray-800 tabular-nums tracking-tighter">{formatTime(currentTime)}</h2>
+            <div className="h-1.5 w-12 bg-emerald-400 mx-auto rounded-full my-4"></div>
+            <p className="text-2xl font-extrabold text-gray-700">
+              {userName ? `${userName} さん、今日もありがとうございます！` : "今日もありがとうございます！"}
+            </p>
+          </div>
 
-        {/* ボタンセクション 💡 「CURRENT STATUS」のバッジを削除し、驚くほどスッキリ押しやすく整え */}
-        <div className="bg-white rounded-[40px] p-10 shadow-sm border border-gray-100 text-center space-y-6">
+          {/* システム通知メッセージ（枠内中央に配置） */}
           {statusMessage && (
-            <div className="max-w-md mx-auto bg-emerald-50 text-emerald-800 border-2 border-emerald-100 px-6 py-4 rounded-3xl text-sm font-bold animate-fadeIn">{statusMessage}</div>
+            <div className="max-w-md mx-auto bg-emerald-50 text-emerald-800 border-2 border-emerald-100 px-6 py-4 rounded-3xl text-sm font-bold animate-fadeIn">
+              {statusMessage}
+            </div>
           )}
 
-          <div className="flex flex-col sm:flex-row justify-center items-stretch space-y-4 sm:space-y-0 sm:space-x-6 max-w-2xl mx-auto">
+          {/* 💡 ボタンデザイン変更：絵文字を削除し、py-6、rounded-2xlでひと回りスタイリッシュに縮小 */}
+          <div className="flex flex-col sm:flex-row justify-center items-stretch space-y-4 sm:space-y-0 sm:space-x-6 max-w-xl mx-auto">
             <button 
               onClick={handleStartWork} 
               disabled={workState === "working"} 
-              className="flex-1 bg-emerald-400 hover:bg-emerald-500 text-white font-black text-2xl py-10 rounded-[32px] shadow-xl shadow-emerald-100 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-20 disabled:grayscale disabled:scale-100"
+              className="flex-1 bg-emerald-400 hover:bg-emerald-500 text-white font-black text-xl py-6 rounded-2xl shadow-xl shadow-emerald-100/50 hover:scale-[1.01] active:scale-95 transition-all disabled:opacity-20 disabled:grayscale disabled:scale-100"
             >
-              🚀 業務開始
+              業務開始
             </button>
             <button 
               onClick={() => setShowEndModal(true)} 
               disabled={workState !== "working"} 
-              className="flex-1 bg-gray-800 hover:bg-gray-900 text-white font-black text-2xl py-10 rounded-[32px] shadow-xl shadow-gray-200 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-20 disabled:scale-100"
+              className="flex-1 bg-gray-800 hover:bg-gray-900 text-white font-black text-xl py-6 rounded-2xl shadow-xl shadow-gray-200/50 hover:scale-[1.01] active:scale-95 transition-all disabled:opacity-20 disabled:scale-100"
             >
-              🏁 業務終了
+              業務終了
             </button>
           </div>
         </div>
 
-        {/* ポップな吹き出し風のカスタムメッセージエリア */}
+        {/* ポップな吹き出し風のカスタムメッセージエリア（オーナー伝言板） */}
         <div className="relative max-w-2xl mx-auto group">
           <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-6 h-6 bg-amber-400 rotate-45 rounded-sm"></div>
           

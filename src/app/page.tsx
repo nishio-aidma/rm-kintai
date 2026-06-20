@@ -184,9 +184,15 @@ export default function DashboardPage() {
     <div className="min-h-screen bg-gray-50 text-gray-800 font-sans">
       <header className="bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between shadow-sm">
         <div className="flex items-center space-x-3">
-          <span onClick={() => router.push("/")} className="text-2xl font-bold text-gray-800 tracking-tight cursor-pointer">ダコック</span>
+          {/* 👑 テキストロゴをアイコン画像に差し替え */}
+          <img 
+            src="/icon_rmkintai.png" 
+            alt="ダコック ロゴ" 
+            onClick={() => router.push("/")} 
+            className="h-9 w-auto cursor-pointer transition-transform hover:scale-105" 
+          />
           <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${userRole === "owner" ? "bg-gray-800 text-white" : "bg-emerald-50 text-emerald-600"}`}>
-            {userRole === "owner" ? "オーナー権限ログイン中" : "RM事業部 業務管理システム"}
+            {userRole === "owner" ? "オーナー権限ログイン中" : "ダコック 業務管理システム"}
           </span>
         </div>
         

@@ -397,7 +397,13 @@ export default function AdminPage() {
       <header className="bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between shadow-sm">
         <div className="flex items-center space-x-6">
           <div className="flex items-center space-x-3">
-            <span onClick={() => router.push("/")} className="text-2xl font-bold text-gray-800 tracking-tight cursor-pointer hover:text-emerald-500 transition-colors">ダコック</span>
+            {/* 👑 管理者画面のテキストロゴもアイコン画像に差し替え */}
+            <img 
+              src="/icon_rmkintai.png" 
+              alt="ダコック ロゴ" 
+              onClick={() => router.push("/")} 
+              className="h-9 w-auto cursor-pointer transition-transform hover:scale-105" 
+            />
             <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${userRole === "owner" ? "bg-gray-800 text-white" : "bg-purple-600 text-white"}`}>
               {userRole === "owner" ? "オーナーパネル" : `チーム管理者パネル (${myDepartment || "未設定"})`}
             </span>

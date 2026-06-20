@@ -94,10 +94,15 @@ export default function LoginPage() {
     <div className="min-h-screen bg-gray-50 flex items-center justify-center font-sans text-xs px-4">
       <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-sm border border-gray-100 space-y-6 text-center">
 
-        <div>
-          <h2 className="text-3xl font-black text-gray-800 tracking-tight">ダコック</h2>
-          <p className="text-gray-400 mt-1.5 font-medium">RM事業部 業務管理システム</p>
-        </div>
+<div className="flex flex-col items-center">
+  {/* 👑 ログイン画面のテキストロゴも存在感のあるアイコン画像に差し替え */}
+  <img 
+    src="/icon_rmkintai.png" 
+    alt="ダコック ロゴ" 
+    className="h-20 w-auto mb-3" // 画面中央なので大きめに配置
+  />
+  <p className="text-gray-400 font-medium">ダコック 業務管理システム</p>
+</div>
 
         {errorMessage && (
           <div className="bg-red-50 text-red-700 font-semibold p-3 rounded-xl border border-red-100 text-left">

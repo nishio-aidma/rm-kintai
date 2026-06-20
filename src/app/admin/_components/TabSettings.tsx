@@ -2,11 +2,9 @@
 
 import { useState, useEffect } from "react";
 import { attendanceRepository, MemberInfo } from "@/lib/attendanceRepository";
-// 💡 公式関数を上部で完全に安全な静的インポートに集約
 import { doc, setDoc, serverTimestamp, collection, getDocs, deleteDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
-// 固定メンバー用の型定義
 interface FixedMember {
   id: string;
   managementNumber: string;
@@ -29,11 +27,8 @@ interface TabSettingsProps {
 export default function TabSettings({ setStatusMessage, loadAllParentData }: TabSettingsProps) {
   const [footerMessageInput, setFooterMessageInput] = useState<string>("");
   const [isSavingSettings, setIsSavingSettings] = useState<boolean>(false);
-
-  // 一般管理者(admin)に表示させるメニューをON/OFFするためのチェック配列ステート
   const [adminAllowedTabs, setAdminAllowedTabs] = useState<string[]>(["summary", "records", "org"]);
 
-  // 🔒 固定メンバー管理用のステート
   const [fixedMembers, setFixedMembers] = useState<FixedMember[]>([]);
   const [lastName, setLastName] = useState("");
   const [firstName, setFirstName] = useState("");
@@ -42,17 +37,14 @@ export default function TabSettings({ setStatusMessage, loadAllParentData }: Tab
   const [memberEmail, setMemberEmail] = useState("");
   const [hourlyRate, setHourlyRate] = useState<number>(0);
 
-  // 画面を開いた瞬間に、すべての設定データと固定メンバー一覧をFirestoreから同時回収
   const loadAllSettingsAndMembers = async () => {
     try {
-      // 1. ダッシュボード設定の取得
       const settings = await attendanceRepository.getDashboardSettings();
       if (settings) {
         if (settings.footerMessage) setFooterMessageInput(settings.footerMessage);
         if (settings.adminAllowedTabs) setAdminAllowedTabs(settings.adminAllowedTabs);
       }
 
-      // 2. 固定メンバー一覧の取得
       const querySnapshot = await getDocs(collection(db, "fixed_members"));
       const list: FixedMember[] = [];
       querySnapshot.forEach((docSnap) => {
@@ -76,12 +68,10 @@ export default function TabSettings({ setStatusMessage, loadAllParentData }: Tab
     }
   };
 
-  // ダッシュボード・メニュー権限の保存関数
   const handleSaveSettings = async () => {
     setIsSavingSettings(true);
     try {
       setStatusMessage("ダッシュボード設定を更新中...");
-      
       const docRef = doc(db, "settings", "dashboard");
       await setDoc(docRef, { 
         footerMessage: footerMessageInput,
@@ -91,7 +81,6 @@ export default function TabSettings({ setStatusMessage, loadAllParentData }: Tab
 
       setStatusMessage("✨ ダッシュボードメッセージ ＆ 管理者メニュー表示権限を正常に更新しました！");
       setTimeout(() => setStatusMessage(null), 4000);
-      
       await loadAllParentData();
     } catch (error) {
       console.error("設定の保存エラー:", error);
@@ -102,7 +91,6 @@ export default function TabSettings({ setStatusMessage, loadAllParentData }: Tab
     }
   };
 
-  // 👑 固定メンバーの動的登録
   const handleRegisterFixedMember = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!memberEmail.trim() || !lastName.trim() || !firstName.trim()) {
@@ -130,8 +118,6 @@ export default function TabSettings({ setStatusMessage, loadAllParentData }: Tab
 
     try {
       await setDoc(doc(db, "fixed_members", cleanEmail), newMember);
-      
-      // フォームリセット
       setLastName("");
       setFirstName("");
       setLastNameKana("");
@@ -141,7 +127,6 @@ export default function TabSettings({ setStatusMessage, loadAllParentData }: Tab
 
       setStatusMessage("👑 固定メンバーを登録しました。CSVインポート時に自動マージされます。");
       setTimeout(() => setStatusMessage(null), 4000);
-      
       await loadAllSettingsAndMembers();
       await loadAllParentData();
     } catch (error) {
@@ -150,13 +135,11 @@ export default function TabSettings({ setStatusMessage, loadAllParentData }: Tab
     }
   };
 
-  // 👑 固定メンバーの保護解除（削除）
   const handleDeleteFixedMember = async (targetEmail: string) => {
     try {
       await deleteDoc(doc(db, "fixed_members", targetEmail));
       setStatusMessage("✕ 固定メンバーの保護を解除しました。");
       setTimeout(() => setStatusMessage(null), 3000);
-      
       await loadAllSettingsAndMembers();
       await loadAllParentData();
     } catch (error) {
@@ -181,29 +164,34 @@ export default function TabSettings({ setStatusMessage, loadAllParentData }: Tab
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="text-[10px] text-gray-400 block mb-1">苗字（必須）</label>
-              <input type="text" value={lastName} onChange={(e) => setLastName(e.target.value)} placeholder="西尾" className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:bg-white focus:border-purple-500" />
+              {/* 💡 プレースホルダーをダミー名称に変更 */}
+              <input type="text" value={lastName} onChange={(e) => setLastName(e.target.value)} placeholder="山田" className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:bg-white focus:border-purple-500" />
             </div>
             <div>
               <label className="text-[10px] text-gray-400 block mb-1">名前（必須）</label>
-              <input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} placeholder="圭史" className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:bg-white focus:border-purple-500" />
+              {/* 💡 プレースホルダーをダミー名称に変更 */}
+              <input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} placeholder="太郎" className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:bg-white focus:border-purple-500" />
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="text-[10px] text-gray-400 block mb-1">苗字カナ</label>
-              <input type="text" value={lastNameKana} onChange={(e) => setLastNameKana(e.target.value)} placeholder="ニシオ" className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:bg-white focus:border-purple-500" />
+              {/* 💡 プレースホルダーをダミー名称に変更 */}
+              <input type="text" value={lastNameKana} onChange={(e) => setLastNameKana(e.target.value)} placeholder="ヤマダ" className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:bg-white focus:border-purple-500" />
             </div>
             <div>
               <label className="text-[10px] text-gray-400 block mb-1">名前カナ</label>
-              <input type="text" value={firstNameKana} onChange={(e) => setFirstNameKana(e.target.value)} placeholder="ケイジ" className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:bg-white focus:border-purple-500" />
+              {/* 💡 プレースホルダーをダミー名称に変更 */}
+              <input type="text" value={firstNameKana} onChange={(e) => setFirstNameKana(e.target.value)} placeholder="タロウ" className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:bg-white focus:border-purple-500" />
             </div>
           </div>
 
           <div className="grid grid-cols-3 gap-4">
             <div className="col-span-2">
               <label className="text-[10px] text-gray-400 block mb-1">メールアドレス（必須 / ログインキー）</label>
-              <input type="email" value={memberEmail} onChange={(e) => setMemberEmail(e.target.value)} placeholder="nishio@aidma-hd.jp" className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:bg-white focus:border-purple-500" />
+              {/* 💡 プレースホルダーを一般的なダミードメインに変更 */}
+              <input type="email" value={memberEmail} onChange={(e) => setMemberEmail(e.target.value)} placeholder="test@example.com" className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:bg-white focus:border-purple-500" />
             </div>
             <div>
               <label className="text-[10px] text-gray-400 block mb-1">管理番号（自動固定）</label>
@@ -218,7 +206,6 @@ export default function TabSettings({ setStatusMessage, loadAllParentData }: Tab
           </div>
         </form>
 
-        {/* 保護ユーザー一覧サブテーブル */}
         <div className="pt-4 border-t border-gray-100 space-y-2">
           <h4 className="font-extrabold text-gray-700 text-xs">🔒 現在保護されている固定ユーザー一覧 ({fixedMembers.length}名)</h4>
           {fixedMembers.length === 0 ? (
@@ -262,56 +249,32 @@ export default function TabSettings({ setStatusMessage, loadAllParentData }: Tab
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-          {/* 稼働実績 */}
           <label className="flex items-center space-x-3 bg-gray-50 border border-gray-100 p-4 rounded-xl hover:bg-purple-50/50 transition-all cursor-pointer group">
-            <input 
-              type="checkbox" 
-              checked={adminAllowedTabs.includes("summary")}
-              onChange={() => handleCheckboxChange("summary")}
-              className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500 cursor-pointer"
-            />
+            <input type="checkbox" checked={adminAllowedTabs.includes("summary")} onChange={() => handleCheckboxChange("summary")} className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500 cursor-pointer" />
             <div>
               <span className="text-xs font-black text-gray-700 block group-hover:text-purple-700 transition-colors">📊 稼働実績</span>
               <span className="text-[10px] text-gray-400 font-medium">自チーム限定の月次集計レポート（日数・実働時間）</span>
             </div>
           </label>
 
-          {/* 稼働記録 */}
           <label className="flex items-center space-x-3 bg-gray-50 border border-gray-100 p-4 rounded-xl hover:bg-purple-50/50 transition-all cursor-pointer group">
-            <input 
-              type="checkbox" 
-              checked={adminAllowedTabs.includes("records")}
-              onChange={() => handleCheckboxChange("records")}
-              className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500 cursor-pointer"
-            />
+            <input type="checkbox" checked={adminAllowedTabs.includes("records")} onChange={() => handleCheckboxChange("records")} className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500 cursor-pointer" />
             <div>
               <span className="text-xs font-black text-gray-700 block group-hover:text-purple-700 transition-colors">📝 稼働記録</span>
               <span className="text-[10px] text-gray-400 font-medium">自チームの日次打刻データの閲覧・代理追加・削除、リーダー確認トグル</span>
             </div>
           </label>
 
-          {/* 所属チーム登録 */}
           <label className="flex items-center space-x-3 bg-gray-50 border border-gray-100 p-4 rounded-xl hover:bg-purple-50/50 transition-all cursor-pointer group">
-            <input 
-              type="checkbox" 
-              checked={adminAllowedTabs.includes("members")}
-              onChange={() => handleCheckboxChange("members")}
-              className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500 cursor-pointer"
-            />
+            <input type="checkbox" checked={adminAllowedTabs.includes("members")} onChange={() => handleCheckboxChange("members")} className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500 cursor-pointer" />
             <div>
               <span className="text-xs font-black text-gray-700 block group-hover:text-purple-700 transition-colors">👥 所属チーム登録</span>
               <span className="text-[10px] text-gray-400 font-medium">メンバーのアサイン状況やログインアドレスの紐付け管理</span>
             </div>
           </label>
 
-          {/* 組織図 */}
           <label className="flex items-center space-x-3 bg-gray-50 border border-gray-100 p-4 rounded-xl hover:bg-purple-50/50 transition-all cursor-pointer group">
-            <input 
-              type="checkbox" 
-              checked={adminAllowedTabs.includes("org")}
-              onChange={() => handleCheckboxChange("org")}
-              className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500 cursor-pointer"
-            />
+            <input type="checkbox" checked={adminAllowedTabs.includes("org")} onChange={() => handleCheckboxChange("org")} className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500 cursor-pointer" />
             <div>
               <span className="text-xs font-black text-gray-700 block group-hover:text-purple-700 transition-colors">🗺️ 組織図</span>
               <span className="text-[10px] text-gray-400 font-medium">RM全体の組織図マップおよびリーダー兼任アサイン操作ツリー</span>
@@ -330,7 +293,7 @@ export default function TabSettings({ setStatusMessage, loadAllParentData }: Tab
           <textarea
             value={footerMessageInput}
             onChange={(e) => setFooterMessageInput(e.target.value)}
-            placeholder="例: 今月予定していた業務がすべて終了しましたか？業務記録のページから業務記録の提出をお願いいたします！"
+            placeholder="ここにメッセージを入力してください..."
             rows={4}
             className="w-full bg-gray-50 border border-gray-200 p-4 rounded-2xl text-sm font-semibold focus:outline-none focus:bg-white focus:border-purple-500 shadow-inner resize-none min-h-[100px]"
           />

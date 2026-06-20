@@ -56,7 +56,7 @@ export const attendanceRepository = {
         submitted: false,
         verified: false,
         createdAt: serverTimestamp(),
-        updated: serverTimestamp(),
+        updatedAt: serverTimestamp(),
       };
       const docRef = await addDoc(attendanceCollection, newRecord);
       return docRef.id;
@@ -254,7 +254,7 @@ export const attendanceRepository = {
     }
   },
 
-  // 👑 確認ステート更新
+  // 確認ステート更新
   updateRecordVerification: async (stampId: string, isVerified: boolean) => {
     try {
       const recordRef = doc(db, "attendance_records", stampId);
@@ -317,19 +317,16 @@ export const attendanceRepository = {
     }
   },
 
-  // 👑 10. 【仕様大改造】通常メンバーマスタ ＋ オーナー固定メンバー枠を完全自動合流して配給
+  // 10. 通常メンバーマスタ ＋ オーナー固定メンバー枠を完全自動合流して配給
   getAllMembers: async (): Promise<MemberInfo[]> => {
     try {
-      // 通常マスタと固定枠を並列で最速同時ロード
       const [membersSnapshot, fixedSnapshot] = await Promise.all([
         getDocs(collection(db, "members")),
         getDocs(collection(db, "fixed_members"))
       ]);
 
-      // メールアドレスをキーにして重複を自動クリーンアップするMapを生成
       const allMembersMap = new Map<string, MemberInfo>();
 
-      // A. 先に通常のCSVインポート枠をMapに展開
       membersSnapshot.forEach((doc) => {
         const data = doc.data();
         const email = doc.id;
@@ -353,7 +350,6 @@ export const attendanceRepository = {
         });
       });
 
-      // B. 次にオーナー固定登録枠をMapに流し込む（重複があった場合は固定枠側の設定を安全に優先）
       fixedSnapshot.forEach((doc) => {
         const data = doc.data();
         const email = doc.id;
@@ -377,22 +373,37 @@ export const attendanceRepository = {
         });
       });
 
-      // 全画面（組織図等含む）に合流済みの配列としてデリバリー
       return Array.from(allMembersMap.values());
     } catch (error) {
       return [];
     }
   },
 
-  // 11. メンバーの所属・ログインメール更新
+  // 👑 11. 【大改造】メンバーの所属・ログインメール更新（二重安全同期仕様）
   updateMemberFields: async (email: string, department: string, loginEmail: string) => {
     try {
-      const memberRef = doc(db, "members", email);
-      await updateDoc(memberRef, {
+      const cleanEmail = email.trim().toLowerCase();
+      const updates = {
         department: department,
         loginEmail: loginEmail.trim(),
         updatedAt: serverTimestamp()
-      });
+      };
+
+      // A. 固定メンバー側にドキュメントが存在するかチェックし、あれば最優先で更新（インポート時の消滅を防ぐ）
+      const fixedRef = doc(db, "fixed_members", cleanEmail);
+      const fixedSnap = await getDoc(fixedRef);
+      if (fixedSnap.exists()) {
+        await updateDoc(fixedRef, updates);
+      }
+
+      // B. 通常の members コレクション側も確実に同期・作成
+      const memberRef = doc(db, "members", cleanEmail);
+      const memberSnap = await getDoc(memberRef);
+      if (memberSnap.exists()) {
+        await updateDoc(memberRef, updates);
+      } else if (fixedSnap.exists()) {
+        await setDoc(memberRef, { ...fixedSnap.data(), ...updates }, { merge: true });
+      }
       
       if (loginEmail.trim()) {
         const requestRef = doc(db, "account_requests", loginEmail.trim().toLowerCase());
@@ -404,43 +415,78 @@ export const attendanceRepository = {
     }
   },
 
-  // 12. 権限トグル
+  // 👑 12. 【大改造】権限トグル（二重安全同期仕様）
   updateMemberRole: async (email: string, newRole: "user" | "admin") => {
     try {
-      const memberRef = doc(db, "members", email);
+      const cleanEmail = email.trim().toLowerCase();
       const updates: any = { role: newRole, updatedAt: serverTimestamp() };
       if (newRole === "user") {
         updates.isOwnerProxy = false;
       }
-      await updateDoc(memberRef, updates);
+
+      const fixedRef = doc(db, "fixed_members", cleanEmail);
+      const fixedSnap = await getDoc(fixedRef);
+      if (fixedSnap.exists()) {
+        await updateDoc(fixedRef, updates);
+      }
+
+      const memberRef = doc(db, "members", cleanEmail);
+      const memberSnap = await getDoc(memberRef);
+      if (memberSnap.exists()) {
+        await updateDoc(memberRef, updates);
+      } else if (fixedSnap.exists()) {
+        await setDoc(memberRef, { ...fixedSnap.data(), ...updates }, { merge: true });
+      }
       return true;
     } catch (error) {
       throw error;
     }
   },
 
-  // オーナー代理権限切り替え
+  // 👑 【大改造】オーナー代理権限切り替え（二重安全同期仕様）
   updateMemberOwnerProxy: async (email: string, isProxy: boolean) => {
     try {
-      const memberRef = doc(db, "members", email);
-      await updateDoc(memberRef, {
-        isOwnerProxy: isProxy,
-        updatedAt: serverTimestamp()
-      });
+      const cleanEmail = email.trim().toLowerCase();
+      const updates = { isOwnerProxy: isProxy, updatedAt: serverTimestamp() };
+
+      const fixedRef = doc(db, "fixed_members", cleanEmail);
+      const fixedSnap = await getDoc(fixedRef);
+      if (fixedSnap.exists()) {
+        await updateDoc(fixedRef, updates);
+      }
+
+      const memberRef = doc(db, "members", cleanEmail);
+      const memberSnap = await getDoc(memberRef);
+      if (memberSnap.exists()) {
+        await updateDoc(memberRef, updates);
+      } else if (fixedSnap.exists()) {
+        await setDoc(memberRef, { ...fixedSnap.data(), ...updates }, { merge: true });
+      }
       return true;
     } catch (error) {
       throw error;
     }
   },
 
-  // 兼任リーダーアサイン
+  // 👑 【大改造】兼任リーダーアサイン・組織図の登録（二重安全同期仕様）
   updateMemberLeadingTeams: async (email: string, leadingTeams: string[]) => {
     try {
-      const memberRef = doc(db, "members", email);
-      await updateDoc(memberRef, {
-        leadingTeams: leadingTeams,
-        updatedAt: serverTimestamp()
-      });
+      const cleanEmail = email.trim().toLowerCase();
+      const updates = { leadingTeams: leadingTeams, updatedAt: serverTimestamp() };
+
+      const fixedRef = doc(db, "fixed_members", cleanEmail);
+      const fixedSnap = await getDoc(fixedRef);
+      if (fixedSnap.exists()) {
+        await updateDoc(fixedRef, updates);
+      }
+
+      const memberRef = doc(db, "members", cleanEmail);
+      const memberSnap = await getDoc(memberRef);
+      if (memberSnap.exists()) {
+        await updateDoc(memberRef, updates);
+      } else if (fixedSnap.exists()) {
+        await setDoc(memberRef, { ...fixedSnap.data(), ...updates }, { merge: true });
+      }
       return true;
     } catch (error) {
       throw error;
@@ -485,12 +531,11 @@ export const attendanceRepository = {
     }
   },
 
-  // 👑 13. 【仕様大改造】ログイン認証用の逆引き処理でも固定メンバー(fixed_members)を徹底救済
+  // 13. 【仕様大改造】ログイン認証用の逆引き処理でも固定メンバー(fixed_members)を徹底救済
   getMemberByEmail: async (loginEmail: string): Promise<MemberInfo | null> => {
     try {
       const cleanEmail = loginEmail.trim().toLowerCase();
 
-      // ルートA: まずは通常の members コレクションからアカウントを検索
       const q = query(collection(db, "members"), or(where("loginEmail", "==", cleanEmail), where("email", "==", cleanEmail)));
       const snap = await getDocs(q);
       if (!snap.empty) {
@@ -515,7 +560,6 @@ export const attendanceRepository = {
         };
       }
 
-      // ルートB: 通常マスタで見つからなかった場合、固定メンバー(fixed_members)から直にデータがあるか最終救済検索
       const fixedDocRef = doc(db, "fixed_members", cleanEmail);
       const fixedSnap = await getDoc(fixedDocRef);
       if (fixedSnap.exists()) {

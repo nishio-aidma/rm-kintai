@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-// 💡 【修正】Firestoreから共通設定を直接読み書きするため、repositoryと公式関数を上部で静的インポート
+// 💡 Firestoreから共通設定を直接読み書きするため、repositoryと公式関数を上部で静的インポート
 import { MemberInfo, attendanceRepository } from "@/lib/attendanceRepository";
 import { doc, setDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -17,7 +17,7 @@ export default function TabCsv({ handleCSVUpload, members }: TabCsvProps) {
   // 最終アップロード日時を記憶するローカルステート
   const [lastUploadTime, setLastUploadTime] = useState<string>("---");
 
-  // 💡 【仕様変更】画面を開いた瞬間に、個人PCのメモ帳ではなくFirestoreの共通設定から前回のインポート日時を回収
+  // 💡 画面を開いた瞬間に、個人PCのメモ帳ではなくFirestoreの共通設定から前回のインポート日時を回収
   useEffect(() => {
     const loadImportTime = async () => {
       try {
@@ -32,23 +32,25 @@ export default function TabCsv({ handleCSVUpload, members }: TabCsvProps) {
     loadImportTime();
   }, []);
 
-  // 💡 【仕様変更】CSVファイルが選択された瞬間に、全管理者で同期できるFirestoreへ日時をガッチリ刻む処理
+  // 👑 修正：非同期の通信前にインポート処理を最優先で実行する安全仕様に改善
   const onFileChangeWithTimestamp = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files?.[0]) {
-      const now = new Date();
-      const timeStr = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}/${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-      
-      try {
-        // 💡 settings/dashboard ドキュメントに「lastCsvImportTime」としてマージ保存！
-        const docRef = doc(db, "settings", "dashboard");
-        await setDoc(docRef, { lastCsvImportTime: timeStr }, { merge: true });
-        setLastUploadTime(timeStr);
-      } catch (error) {
-        console.error("インポート日時の保存に失敗しました:", error);
-      }
-    }
-    // 大元のインポート処理（Firestoreへのデータ流し込み）を実行（仕様保持）
+    if (!e.target.files?.[0]) return;
+
+    // 💡 【最重要】イベントやファイル情報がブラウザに破棄される前に、大元のインポート処理を即座に実行！
     handleCSVUpload(e);
+
+    // インポート処理へ引き渡した後に、バックグラウンドで日時をFirestoreへ刻む
+    const now = new Date();
+    const timeStr = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}/${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    
+    try {
+      // settings/dashboard ドキュメントに「lastCsvImportTime」としてマージ保存！
+      const docRef = doc(db, "settings", "dashboard");
+      await setDoc(docRef, { lastCsvImportTime: timeStr }, { merge: true });
+      setLastUploadTime(timeStr);
+    } catch (error) {
+      console.error("インポート日時の保存に失敗しました:", error);
+    }
   };
 
   // 検索フィルター（仕様保持）
@@ -75,7 +77,7 @@ export default function TabCsv({ handleCSVUpload, members }: TabCsvProps) {
             </p>
           </div>
           
-          {/* 最終アップロード日時バッジ（デザイン保持） */}
+          {/* 最終アップロード日時バッジ */}
           <div className="text-right">
             <span className="text-[10px] text-gray-400 block font-bold">最終インポート日時</span>
             <span className="text-xs font-mono font-black text-emerald-600 bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-lg inline-block mt-0.5 shadow-sm">

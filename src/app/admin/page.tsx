@@ -63,7 +63,14 @@ export default function AdminPage() {
   const [accountRequests, setAccountRequests] = useState<AccountRequest[]>([]);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
-  const [selectedMonth, setSelectedMonth] = useState<string>("2026-06");
+  // 💡 【修正箇所1】固定文字列("2026-06")を廃止し、画面を開いた日の「当月(YYYY-MM)」を自動取得してセット
+  const [selectedMonth, setSelectedMonth] = useState<string>(() => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    return `${year}-${month}`;
+  });
+
   const [filterEmail, setFilterEmail] = useState<string>("all");
 
   const [statusFilter, setStatusFilter] = useState<"all" | "submitted" | "unsubmitted">("all");
@@ -85,6 +92,20 @@ export default function AdminPage() {
 
   // 一般管理者(admin)に表示を許可するタブリスト（マスタから動的復元する仕様を保持）
   const [adminAllowedTabs, setAdminAllowedTabs] = useState<string[]>(["summary", "records", "org"]);
+
+  // 💡 【新設】当月を中心に過去6ヶ月〜未来1ヶ月の選択肢を自動計算するヘルパー関数
+  const generateMonthOptions = () => {
+    const options: { value: string; label: string }[] = [];
+    const now = new Date();
+    
+    for (let i = -6; i <= 1; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      options.push({ value: `${y}-${m}`, label: `${y}年${m}月` });
+    }
+    return options.reverse(); // 新しい月が上に来るように並び替え
+  };
 
   const loadAllData = async () => {
     try {
@@ -158,7 +179,7 @@ export default function AdminPage() {
   const getMemberMeta = (email: string) => {
     const matched = members.find(m => m.email === email || m.loginEmail === email);
     return {
-      id: matched ? matched.id : "", // ←ここを追加！
+      id: matched ? matched.id : "",
       name: matched ? matched.name : email.split("@")[0],
       managementNumber: matched ? matched.managementNumber : "---",
       hourlyRate: matched ? matched.hourlyRate : 0,
@@ -220,7 +241,6 @@ export default function AdminPage() {
       const roundedHours = Math.round(data.hours * 100) / 100;
       const totalReward = Math.round(roundedHours * meta.hourlyRate);
       
-      // 💡 【修正】これまですっからかんの空文字 `""` だったインデックス3（4列目：ID）に、上記で拡張した `"${meta.id}"` をガチっとバインド！
       return [noCounter++, `"RM"`, `"パートナー"`, `"${meta.id}"`, `"${meta.managementNumber}"`, `"${meta.name}"`, totalReward, data.days.size, meta.hourlyRate, roundedHours, totalReward, 0, 0, 0, 0, `"${meta.department}"`].join(",");
     });
 
@@ -456,9 +476,13 @@ export default function AdminPage() {
             <div className="flex items-center flex-wrap gap-y-2 gap-x-4">
               <div className="flex items-center space-x-1.5">
                 <span className="font-bold text-gray-400 text-xs">対象月:</span>
+                {/* 💡 【修正箇所2】固定文字列のoptionを廃止し、動的生成された月リストをループで展開 */}
                 <select value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} className="bg-gray-50 border border-gray-200 px-2.5 py-1 rounded-lg font-bold text-gray-700 focus:outline-none cursor-pointer text-xs h-8 shadow-sm">
-                  <option value="2026-06">2026年06月</option>
-                  <option value="2026-05">2026年05月</option>
+                  {generateMonthOptions().map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
                 </select>
               </div>
 

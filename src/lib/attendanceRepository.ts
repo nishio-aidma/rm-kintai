@@ -6,7 +6,8 @@ export interface AttendanceRecordInput {
   userName: string;
   email: string;
   workDate: string;
-  startTime: string;
+  startTime: string; // ユーザーが選択した開始時間 (例: "09:00")
+  actualStartTime?: string; // 👑 実際に打刻ボタンを押したシステム操作時刻 (例: "09:15")
   endTime?: string;
   breakMinutes: number;
 }
@@ -38,7 +39,7 @@ export interface AccountRequest {
 }
 
 export const attendanceRepository = {
-  // 1. 業務開始データを保存
+  // 👑 1. 業務開始データを保存（選択時間と実際の操作時間の両方を保存するよう拡張）
   saveStartRecord: async (data: AttendanceRecordInput) => {
     try {
       const attendanceCollection = collection(db, "attendance_records");
@@ -47,8 +48,10 @@ export const attendanceRepository = {
         userName: data.userName,
         email: data.email,
         workDate: data.workDate,
-        startTime: data.startTime,
+        startTime: data.startTime, // ユーザーが選択した開始時間
+        actualStartTime: data.actualStartTime || data.startTime, // 👑 実際に打刻操作をした時刻
         endTime: "",
+        actualEndTime: "", // 終了時は初期化
         breakMinutes: 0,
         workMinutes: 0,
         workHours: 0,
@@ -65,8 +68,8 @@ export const attendanceRepository = {
     }
   },
 
-  // 2. 業務終了時刻の保存
-  saveEndRecord: async (stampId: string, endTimeStr: string, breakMinutes: number) => {
+  // 👑 2. 業務終了時刻の保存（選択時間と実際の操作時間の両方を更新するよう拡張）
+  saveEndRecord: async (stampId: string, endTimeStr: string, breakMinutes: number, actualEndTimeStr?: string) => {
     try {
       const recordRef = doc(db, "attendance_records", stampId);
       const recordSnap = await getDoc(recordRef);
@@ -95,7 +98,8 @@ export const attendanceRepository = {
       }
 
       await updateDoc(recordRef, {
-        endTime: endTimeStr,
+        endTime: endTimeStr, // ユーザーが選択した終了時間
+        actualEndTime: actualEndTimeStr || endTimeStr, // 👑 実際に打刻操作をした時刻
         breakMinutes: validBreakMinutes,
         workMinutes: workMinutes,
         workHours: workHours,
@@ -217,7 +221,9 @@ export const attendanceRepository = {
         email: email,
         workDate: fields.workDate,
         startTime: fields.startTime,
+        actualStartTime: fields.startTime,
         endTime: fields.endTime,
+        actualEndTime: fields.endTime,
         breakMinutes: validBreakMinutes,
         workMinutes: workMinutes,
         workHours: workHours,
@@ -268,18 +274,14 @@ export const attendanceRepository = {
     }
   },
 
-  // 💡 9. CSVメンバーマスタ保存（新CSVにないメンバーを自動削除する同期処理）
+  // 9. CSVメンバーマスタ保存（新CSVにないメンバーを自動削除する同期処理）
   saveImportedMembers: async (membersList: Omit<MemberInfo, "department" | "loginEmail">[]) => {
     try {
       const batch = writeBatch(db);
 
-      // A. 現在データベースに登録されている全員を取得
       const currentSnapshot = await getDocs(collection(db, "members"));
-
-      // B. 新しくインポートされるメンバーのメールアドレス一覧を作成（比較用に小文字化）
       const newEmailSet = new Set(membersList.map(m => m.email.trim().toLowerCase()));
 
-      // C. 既存データのうち、新しいリストに載っていない人を削除対象に追加
       currentSnapshot.forEach((docSnap) => {
         const existingEmail = docSnap.id.trim().toLowerCase();
         if (!newEmailSet.has(existingEmail)) {
@@ -287,7 +289,6 @@ export const attendanceRepository = {
         }
       });
 
-      // D. 新しいリストの人を登録・更新対象に追加
       for (const member of membersList) {
         const cleanEmail = member.email.trim().toLowerCase();
         const memberRef = doc(db, "members", cleanEmail);
@@ -398,7 +399,7 @@ export const attendanceRepository = {
     }
   },
 
-  // 👑 11. 【大改造】メンバーの所属・ログインメール更新（二重安全同期仕様）
+  // 11. メンバーの所属・ログインメール更新（二重安全同期仕様）
   updateMemberFields: async (email: string, department: string, loginEmail: string) => {
     try {
       const cleanEmail = email.trim().toLowerCase();
@@ -408,14 +409,12 @@ export const attendanceRepository = {
         updatedAt: serverTimestamp()
       };
 
-      // A. 固定メンバー側にドキュメントが存在するかチェックし、あれば最優先で更新（インポート時の消滅を防ぐ）
       const fixedRef = doc(db, "fixed_members", cleanEmail);
       const fixedSnap = await getDoc(fixedRef);
       if (fixedSnap.exists()) {
         await updateDoc(fixedRef, updates);
       }
 
-      // B. 通常の members コレクション側も確実に同期・作成
       const memberRef = doc(db, "members", cleanEmail);
       const memberSnap = await getDoc(memberRef);
       if (memberSnap.exists()) {
@@ -434,7 +433,7 @@ export const attendanceRepository = {
     }
   },
 
-  // 👑 12. 【大改造】権限トグル（二重安全同期仕様）
+  // 12. 権限トグル（二重安全同期仕様）
   updateMemberRole: async (email: string, newRole: "user" | "admin") => {
     try {
       const cleanEmail = email.trim().toLowerCase();
@@ -462,7 +461,7 @@ export const attendanceRepository = {
     }
   },
 
-  // 👑 【大改造】オーナー代理権限切り替え（二重安全同期仕様）
+  // オーナー代理権限切り替え（二重安全同期仕様）
   updateMemberOwnerProxy: async (email: string, isProxy: boolean) => {
     try {
       const cleanEmail = email.trim().toLowerCase();
@@ -487,7 +486,7 @@ export const attendanceRepository = {
     }
   },
 
-  // 👑 【大改造】兼任リーダーアサイン・組織図の登録（二重安全同期仕様）
+  // 兼任リーダーアサイン・組織図の登録（二重安全同期仕様）
   updateMemberLeadingTeams: async (email: string, leadingTeams: string[]) => {
     try {
       const cleanEmail = email.trim().toLowerCase();
@@ -550,7 +549,7 @@ export const attendanceRepository = {
     }
   },
 
-  // 13. 【仕様大改造】ログイン認証用の逆引き処理でも固定メンバー(fixed_members)を徹底救済
+  // 13. ログイン認証用の逆引き処理でも固定メンバー(fixed_members)を徹底救済
   getMemberByEmail: async (loginEmail: string): Promise<MemberInfo | null> => {
     try {
       const cleanEmail = loginEmail.trim().toLowerCase();

@@ -268,12 +268,29 @@ export const attendanceRepository = {
     }
   },
 
-  // 9. CSVメンバーマスタ保存
+  // 💡 9. CSVメンバーマスタ保存（新CSVにないメンバーを自動削除する同期処理）
   saveImportedMembers: async (membersList: Omit<MemberInfo, "department" | "loginEmail">[]) => {
     try {
       const batch = writeBatch(db);
+
+      // A. 現在データベースに登録されている全員を取得
+      const currentSnapshot = await getDocs(collection(db, "members"));
+
+      // B. 新しくインポートされるメンバーのメールアドレス一覧を作成（比較用に小文字化）
+      const newEmailSet = new Set(membersList.map(m => m.email.trim().toLowerCase()));
+
+      // C. 既存データのうち、新しいリストに載っていない人を削除対象に追加
+      currentSnapshot.forEach((docSnap) => {
+        const existingEmail = docSnap.id.trim().toLowerCase();
+        if (!newEmailSet.has(existingEmail)) {
+          batch.delete(docSnap.ref);
+        }
+      });
+
+      // D. 新しいリストの人を登録・更新対象に追加
       for (const member of membersList) {
-        const memberRef = doc(db, "members", member.email);
+        const cleanEmail = member.email.trim().toLowerCase();
+        const memberRef = doc(db, "members", cleanEmail);
         const snap = await getDoc(memberRef);
         
         let currentDept = "";
@@ -281,6 +298,7 @@ export const attendanceRepository = {
         let currentRole = "user";
         let currentOwnerProxy = false;
         let currentLeadingTeams: string[] = [];
+
         if (snap.exists()) {
           const d = snap.data();
           currentDept = d.department || "";
@@ -297,7 +315,7 @@ export const attendanceRepository = {
           lastNameKana: member.lastNameKana,
           firstName: member.firstName,
           firstNameKana: member.firstNameKana,
-          email: member.email,
+          email: cleanEmail,
           hourlyRate: member.hourlyRate,
           media: member.media,
           createdAtStr: member.createdAtStr,
@@ -310,6 +328,7 @@ export const attendanceRepository = {
           updatedAt: serverTimestamp()
         }, { merge: true });
       }
+
       await batch.commit();
       return membersList.length;
     } catch (error) {

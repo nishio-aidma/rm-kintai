@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { collection, query, where, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -13,7 +13,7 @@ interface AttendanceRecord {
   endTime: string;
   breakMinutes: number;
   workHours: number;
-  workMinutes: number; // 💡 【仕様変更】この画面限定で「分表示」にするための型定義を追加
+  workMinutes: number;
   submitted: boolean;
   verified: boolean;
 }
@@ -26,13 +26,30 @@ export default function RecordsPage() {
   const [userEmail, setUserEmail] = useState<string>("読み込み中...");
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
-  // 👑 中央にカスタムモーダルを表示して美しく削除確認を行うための状態管理（仕様保持）
+  // 👑 中央にカスタムモーダルを表示して美しく削除確認を行うための状態管理
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
+  // 今月（例: "2026-07"）を初期選択値にする
   const [selectedMonth, setSelectedMonth] = useState<string>(() => {
     const now = new Date();
-    return now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, '0');
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
+
+  // 💡 【修正のコア】当月を起点に過去12ヶ月分の選択肢（YYYY-MM）を自動生成する
+  const monthOptions = useMemo(() => {
+    const options: { value: string; label: string }[] = [];
+    const now = new Date();
+    for (let i = 0; i < 12; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      options.push({
+        value: `${year}-${month}`,
+        label: `${year}年${month}月`
+      });
+    }
+    return options;
+  }, []);
 
   const fetchRecords = async (email: string) => {
     try {
@@ -49,7 +66,7 @@ export default function RecordsPage() {
           endTime: data.endTime || "---",
           breakMinutes: data.breakMinutes || 0,
           workHours: data.workHours || 0,
-          workMinutes: data.workMinutes || 0, // 💡 Firestoreに保存されている「分データ」を確実に回収
+          workMinutes: data.workMinutes || 0,
           submitted: data.submitted || false,
           verified: data.verified || false,
         });
@@ -69,7 +86,6 @@ export default function RecordsPage() {
     }
   };
 
-  // 👑 元の「合言葉のメモ帳」によるログイン死守＆引き戻しループ防止仕様（完全保持）
   useEffect(() => {
     const sessionStr = localStorage.getItem("session");
     
@@ -86,7 +102,7 @@ export default function RecordsPage() {
     } else {
       router.push("/login");
     }
-  }, [selectedMonth, router]);
+  }, [router]);
 
   useEffect(() => {
     if (!selectedMonth) {
@@ -127,17 +143,15 @@ export default function RecordsPage() {
     }
   };
 
-  // 💡 【新設】すべての確認が完了した状態で押下できる「提出＆CSV出力」のコア関数
+  // すべての確認が完了した状態で押下できる「提出＆CSV出力」のコア関数
   const handleSubmitRecords = async () => {
     if (filteredRecords.length === 0) return;
     try {
       setStatusMessage("📤 業務記録の提出処理を実行中...");
       
-      // 1. データベース上の該当月データを「提出済み」に一括ロック
       const targetIds = filteredRecords.map(r => r.id);
       await attendanceRepository.submitSelectedRecords(targetIds);
 
-      // 2. 分表記に完全準拠したスタッフ用の綺麗な提出CSV控えを生成
       const headers = ["勤務日", "業務開始", "業務終了", "休憩時間", "実働時間(分)"];
       const rows = filteredRecords.map(r => [
         r.workDate,
@@ -147,19 +161,16 @@ export default function RecordsPage() {
         r.workMinutes
       ].join(","));
 
-      // Excelでの文字化けを100%防止するBOMコード(\uFEFF)を先頭に付与
       const csvContent = "\uFEFF" + [headers.join(","), ...rows].join("\n");
       const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
       link.download = `業務記録提出控_${selectedMonth}.csv`;
-      link.click(); // ダウンロードを自動トリガー
+      link.click();
 
-      // 3. 📢 メッセージ表示
       setStatusMessage("📢 今月の業務記録の提出が正常に完了しました！ダウンロードされたCSVファイルは大切な稼働の控えとなりますので、必ず「保存をしておいてください」。");
       
-      // 最新の提出済みロック状態を画面に反映
       await fetchRecords(userEmail);
     } catch (error) {
       setStatusMessage("⚠️ エラー：提出処理に失敗しました。");
@@ -168,22 +179,18 @@ export default function RecordsPage() {
 
   const uniqueDates = new Set(filteredRecords.map(rec => rec.workDate));
   const totalWorkDays = uniqueDates.size;
-
-  // 💡 【仕様変更】総稼働時間の計算を「時間(workHours)」から「分単位(workMinutes)」の合計に完全シフト
   const totalWorkMinutes = filteredRecords.reduce((sum, rec) => sum + (rec.workMinutes || 0), 0);
 
   const totalCount = filteredRecords.length;
   const verifiedCount = filteredRecords.filter(rec => rec.verified).length;
   const isAllVerified = totalCount > 0 && verifiedCount === totalCount;
   
-  // 💡 【新設】すでに提出が済んでいる月かどうかを判定するロックフラグ
   const isAnySubmitted = filteredRecords.some(rec => rec.submitted);
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-800 font-sans">
       <header className="bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between shadow-sm">
         <div className="flex items-center space-x-3">
-          {/* 👑 業務記録画面のテキストロゴもアイコン画像に差し替え */}
           <img 
             src="/icon_rmkintai.png" 
             alt="ダコック ロゴ" 
@@ -209,9 +216,12 @@ export default function RecordsPage() {
               onChange={(e) => setSelectedMonth(e.target.value)}
               className="text-sm font-semibold bg-transparent text-gray-700 focus:outline-none cursor-pointer"
             >
-              <option value="2026-06">2026年06月</option>
-              <option value="2026-05">2026年05月</option>
-              <option value="2026-04">2026年04月</option>
+              {/* 💡 動的生成した過去12ヶ月分の選択肢をマップ表示 */}
+              {monthOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
             </select>
           </div>
         </div>
@@ -223,7 +233,6 @@ export default function RecordsPage() {
               {totalWorkDays} <span className="text-xs font-medium text-gray-400">日</span>
             </p>
           </div>
-          {/* 💡 【仕様変更】総稼働時間の表示を「時間」から「分」表示へ変更 */}
           <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 text-center space-y-0.5">
             <p className="text-[11px] font-bold text-gray-400 tracking-wider">当月の総稼働時間</p>
             <p className="text-2xl font-black text-emerald-500 tabular-nums">
@@ -246,7 +255,6 @@ export default function RecordsPage() {
                     <th className="py-2 font-medium">業務開始</th>
                     <th className="py-2 font-medium">業務終了</th>
                     <th className="py-2 font-medium">休憩時間</th>
-                    {/* 💡 【仕様変更】列タイトルを分表示へ最適化 */}
                     <th className="py-2 font-medium">実働時間 (分)</th>
                     <th className="py-2 font-medium text-center w-20">削除</th>
                     <th className="py-2 text-center w-36 pr-3 font-bold text-gray-500">確認状況</th>
@@ -261,10 +269,8 @@ export default function RecordsPage() {
                         <span className={record.endTime === "---" ? "text-gray-300 font-normal" : ""}>{record.endTime}</span>
                       </td>
                       <td className="py-2 tabular-nums text-gray-400">{record.endTime === "---" ? "---" : `${record.breakMinutes} 分`}</td>
-                      {/* 💡 【仕様変更】実働時間の数数値を「時間(workHours)」から「分(workMinutes)」へ変更 */}
                       <td className="py-2 tabular-nums font-semibold text-gray-700">{record.endTime === "---" ? "---" : `${record.workMinutes} 分`}</td>
                       
-                      {/* 削除ボタンエリア（提出済み・確認済みの場合にしっかりロック） */}
                       <td className="py-2 text-center">
                         {record.verified || record.submitted ? (
                           <span className="text-gray-300 select-none cursor-not-allowed" title="確定または提出済みのデータは削除できません">🔒</span>
@@ -282,7 +288,6 @@ export default function RecordsPage() {
                       </td>
 
                       <td className="py-2 text-center pr-3">
-                        {/* 💡 提出が済んでいる月は「提出完了バッジ」を出して完全編集ロック */}
                         {record.submitted ? (
                           <span className="text-[10px] bg-blue-50 text-blue-700 border border-blue-200 px-2.5 py-0.5 rounded-xl font-extrabold shadow-sm inline-block select-none animate-fadeIn">
                             📤 提出完了
@@ -315,7 +320,6 @@ export default function RecordsPage() {
         </div>
 
         <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 text-center space-y-4">
-          
           {statusMessage && (
             <div className="max-w-2xl mx-auto bg-purple-50 text-purple-950 border-2 border-purple-200 px-5 py-3 rounded-2xl text-xs font-bold transition-all text-left shadow-sm leading-relaxed whitespace-pre-wrap animate-fadeIn">
               {statusMessage}
@@ -335,7 +339,6 @@ export default function RecordsPage() {
             </div>
           </div>
 
-          {/* 💡 【大新設】ユーザー要件：進捗度に応じた提出アクション管理エリア */}
           <div className="pt-2 border-t border-gray-50 mt-2">
             {isAnySubmitted ? (
               <div className="bg-blue-50 text-blue-700 font-extrabold py-3 px-8 rounded-xl text-xs inline-block border border-blue-100 shadow-sm animate-fadeIn">
@@ -362,7 +365,6 @@ export default function RecordsPage() {
               </div>
             )}
           </div>
-          
         </div>
       </main>
 
@@ -370,7 +372,6 @@ export default function RecordsPage() {
       {deleteConfirmId && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn">
           <div className="bg-white rounded-3xl p-6 max-w-sm w-full mx-4 shadow-2xl border border-gray-100 text-center space-y-5 animate-scaleUp">
-            
             <div className="w-12 h-12 mx-auto rounded-full bg-red-50 text-red-500 flex items-center justify-center">
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-6 h-6">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
@@ -404,7 +405,6 @@ export default function RecordsPage() {
           </div>
         </div>
       )}
-
     </div>
   );
 }

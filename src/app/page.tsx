@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { auth } from "@/lib/firebase";
 import { attendanceRepository } from "@/lib/attendanceRepository";
 
-// 🍏 【見やすさ＆操作性大幅向上版】ドラムロール選択UIコンポーネント
+// 🍏 【文字消え解消版】ドラムロール選択UIコンポーネント（重ね順を正しく修正）
 function ScrollWheelPicker({
   options,
   value,
@@ -38,7 +38,6 @@ function ScrollWheelPicker({
     }
   };
 
-  // 数字を直接クリックした際にもその数字へジャンプ
   const handleItemClick = (opt: string, index: number) => {
     onChange(opt);
     if (containerRef.current) {
@@ -47,15 +46,15 @@ function ScrollWheelPicker({
   };
 
   return (
-    <div className="relative h-[160px] w-20 overflow-hidden select-none">
-      {/* 中央の選択帯（くっきり見やすい中央枠） */}
-      <div className="absolute top-[60px] left-0 right-0 h-[40px] bg-emerald-50 border-y-2 border-emerald-500 rounded-lg pointer-events-none z-10" />
+    <div className="relative h-[160px] w-20 overflow-hidden select-none bg-gray-50/50 rounded-2xl border border-gray-100">
+      {/* 1. 一番後ろに配置する緑色の選択枠（z-0） */}
+      <div className="absolute top-[60px] left-1 right-1 h-[40px] bg-emerald-100/80 border-2 border-emerald-500 rounded-xl pointer-events-none z-0" />
 
-      {/* スクロールする数字一覧 */}
+      {/* 2. 手前に表示する数字リスト（z-10） */}
       <div
         ref={containerRef}
         onScroll={handleScroll}
-        className="h-full overflow-y-auto snap-y snap-mandatory scroll-smooth cursor-pointer [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none'] py-[60px]"
+        className="relative z-10 h-full overflow-y-auto snap-y snap-mandatory scroll-smooth cursor-pointer [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none'] py-[60px]"
       >
         {options.map((opt, idx) => (
           <div
@@ -63,8 +62,8 @@ function ScrollWheelPicker({
             onClick={() => handleItemClick(opt, idx)}
             className={`h-[40px] flex items-center justify-center snap-center transition-all ${
               opt === value
-                ? "text-2xl text-gray-900 font-black z-20"
-                : "text-base text-gray-500 font-semibold hover:text-gray-800"
+                ? "text-2xl text-gray-900 font-extrabold"
+                : "text-base text-gray-400 font-medium hover:text-gray-700"
             }`}
           >
             {opt}
@@ -200,7 +199,7 @@ export default function DashboardPage() {
     setShowStartModal(true);
   };
 
-  // 1分微調整用のヘルパー関数
+  // 1分微調整用関数
   const adjustMinute = (currentMinStr: string, delta: number, setMinFunc: (val: string) => void) => {
     const current = parseInt(currentMinStr, 10);
     let next = (current + delta + 60) % 60;
@@ -410,9 +409,8 @@ export default function DashboardPage() {
               <p className="text-xs text-gray-400">スクロールまたはボタンで分を調整してください</p>
             </div>
 
-            {/* 時間ピッカー本体 ＋ 1分単位微調整ボタン */}
             <div className="space-y-4">
-              <div className="flex items-center justify-center space-x-3 bg-gray-50/80 p-3 rounded-3xl border border-gray-100 w-[240px] mx-auto">
+              <div className="flex items-center justify-center space-x-3 bg-white p-2 rounded-3xl border border-gray-100 w-[240px] mx-auto shadow-inner">
                 {/* 時ドラム */}
                 <ScrollWheelPicker
                   options={hoursOptions}
@@ -420,10 +418,10 @@ export default function DashboardPage() {
                   onChange={setStartHourInput}
                 />
                 
-                <span className="text-2xl font-bold text-gray-800 pb-1">:</span>
+                <span className="text-2xl font-black text-gray-800 pb-1">:</span>
 
                 {/* 分ドラム ＋ 上下微調整ボタン */}
-                <div className="flex items-center space-x-1">
+                <div className="flex items-center space-x-1.5">
                   <ScrollWheelPicker
                     options={minutesOptions}
                     value={startMinuteInput}
@@ -433,7 +431,7 @@ export default function DashboardPage() {
                     <button
                       type="button"
                       onClick={() => adjustMinute(startMinuteInput, 1, setStartMinuteInput)}
-                      className="w-7 h-7 bg-white hover:bg-emerald-50 text-gray-600 hover:text-emerald-600 border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center shadow-sm active:scale-95 transition-all"
+                      className="w-7 h-7 bg-gray-100 hover:bg-emerald-500 text-gray-600 hover:text-white border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center shadow-sm active:scale-95 transition-all"
                       title="1分進める"
                     >
                       ▲
@@ -441,7 +439,7 @@ export default function DashboardPage() {
                     <button
                       type="button"
                       onClick={() => adjustMinute(startMinuteInput, -1, setStartMinuteInput)}
-                      className="w-7 h-7 bg-white hover:bg-emerald-50 text-gray-600 hover:text-emerald-600 border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center shadow-sm active:scale-95 transition-all"
+                      className="w-7 h-7 bg-gray-100 hover:bg-emerald-500 text-gray-600 hover:text-white border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center shadow-sm active:scale-95 transition-all"
                       title="1分戻す"
                     >
                       ▼
@@ -509,16 +507,15 @@ export default function DashboardPage() {
             </div>
 
             <div className="space-y-5">
-              {/* 終了時間のドラム ＋ 微調整ボタン */}
               <div className="space-y-3">
-                <div className="flex items-center justify-center space-x-3 bg-gray-50/80 p-3 rounded-3xl border border-gray-100 w-[240px] mx-auto">
+                <div className="flex items-center justify-center space-x-3 bg-white p-2 rounded-3xl border border-gray-100 w-[240px] mx-auto shadow-inner">
                   <ScrollWheelPicker
                     options={hoursOptions}
                     value={endHourInput}
                     onChange={setEndHourInput}
                   />
-                  <span className="text-2xl font-bold text-gray-800 pb-1">:</span>
-                  <div className="flex items-center space-x-1">
+                  <span className="text-2xl font-black text-gray-800 pb-1">:</span>
+                  <div className="flex items-center space-x-1.5">
                     <ScrollWheelPicker
                       options={minutesOptions}
                       value={endMinuteInput}
@@ -528,7 +525,7 @@ export default function DashboardPage() {
                       <button
                         type="button"
                         onClick={() => adjustMinute(endMinuteInput, 1, setEndMinuteInput)}
-                        className="w-7 h-7 bg-white hover:bg-emerald-50 text-gray-600 hover:text-emerald-600 border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center shadow-sm active:scale-95 transition-all"
+                        className="w-7 h-7 bg-gray-100 hover:bg-emerald-500 text-gray-600 hover:text-white border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center shadow-sm active:scale-95 transition-all"
                         title="1分進める"
                       >
                         ▲
@@ -536,7 +533,7 @@ export default function DashboardPage() {
                       <button
                         type="button"
                         onClick={() => adjustMinute(endMinuteInput, -1, setEndMinuteInput)}
-                        className="w-7 h-7 bg-white hover:bg-emerald-50 text-gray-600 hover:text-emerald-600 border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center shadow-sm active:scale-95 transition-all"
+                        className="w-7 h-7 bg-gray-100 hover:bg-emerald-500 text-gray-600 hover:text-white border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center shadow-sm active:scale-95 transition-all"
                         title="1分戻す"
                       >
                         ▼
@@ -545,7 +542,6 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
-                {/* 分数ショートカットボタン */}
                 <div className="flex justify-center space-x-2">
                   {["00", "15", "30", "45"].map((min) => (
                     <button
@@ -564,7 +560,6 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              {/* 休憩時間の選択 */}
               <div className="bg-gray-50/80 p-3 rounded-2xl border border-gray-100 flex items-center justify-between px-4">
                 <span className="text-xs text-gray-500 font-semibold">休憩時間</span>
                 <select 
@@ -610,7 +605,7 @@ export default function DashboardPage() {
 
             <div className="flex flex-col space-y-2 pt-2">
               <button onClick={handleConfirmEndWork} className="w-full bg-gray-800 hover:bg-gray-900 text-white font-semibold py-3.5 rounded-xl text-sm transition-all">確定して送信</button>
-              <button onClick={() => { setShowEndConfirmModal(false); setShowEndModal(true); }} className="w-full bg-white text-gray-600 font-semibold py-3.5 rounded-xl text-sm transition-all">修正する</button>
+              <button onClick={() => { setShowEndConfirmModal(false); setShowStartModal(true); }} className="w-full bg-white text-gray-600 font-semibold py-3.5 rounded-xl text-sm transition-all">修正する</button>
             </div>
           </div>
         </div>

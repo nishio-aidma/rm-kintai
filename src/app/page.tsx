@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { auth } from "@/lib/firebase";
 import { attendanceRepository } from "@/lib/attendanceRepository";
 
-// 🍏 【新規変更】操作感抜群の上下クリック式ピッカー（ステッパー）
-function TimeStepper({
+// 🍏 【滑らか改善版】ドラムロール選択UIコンポーネント（マウスドラッグ＆スムーズスクロール対応）
+function ScrollWheelPicker({
   options,
   value,
   onChange,
@@ -15,43 +15,83 @@ function TimeStepper({
   value: string;
   onChange: (val: string) => void;
 }) {
-  const currentIndex = options.indexOf(value);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const isDragging = useRef(false);
+  const startY = useRef(0);
+  const scrollTop = useRef(0);
 
-  // 上ボタン（数字を増やす、一番上なら一番下へループ）
-  const handleUp = () => {
-    const nextIndex = (currentIndex + 1) % options.length;
-    onChange(options[nextIndex]);
+  // 初期表示時に選択値へスクロール
+  useEffect(() => {
+    if (containerRef.current) {
+      const index = options.indexOf(value);
+      if (index !== -1) {
+        containerRef.current.scrollTop = index * 40;
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // スクロール停止時に最も近い位置の数字を選択
+  const handleScroll = () => {
+    if (containerRef.current) {
+      const currentScroll = containerRef.current.scrollTop;
+      const index = Math.round(currentScroll / 40);
+      if (options[index] && options[index] !== value) {
+        onChange(options[index]);
+      }
+    }
   };
 
-  // 下ボタン（数字を減らす、一番下なら一番上へループ）
-  const handleDown = () => {
-    const nextIndex = (currentIndex - 1 + options.length) % options.length;
-    onChange(options[nextIndex]);
+  // マウスで掴んでドラッグで滑らせる処理
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (!containerRef.current) return;
+    isDragging.current = true;
+    startY.current = e.pageY - containerRef.current.offsetTop;
+    scrollTop.current = containerRef.current.scrollTop;
+  };
+
+  const handleMouseLeaveOrUp = () => {
+    isDragging.current = false;
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging.current || !containerRef.current) return;
+    e.preventDefault();
+    const y = e.pageY - containerRef.current.offsetTop;
+    const walk = (y - startY.current) * 1.5; // スライドの滑らかさ倍率
+    containerRef.current.scrollTop = scrollTop.current - walk;
   };
 
   return (
-    <div className="flex flex-col items-center justify-center w-20">
-      <button 
-        onClick={handleUp} 
-        className="w-full py-2 text-gray-300 hover:text-emerald-500 hover:bg-emerald-50 rounded-xl transition-all flex justify-center"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 15l7-7 7 7" />
-        </svg>
-      </button>
+    <div className="relative h-[160px] w-20 overflow-hidden select-none touch-pan-y">
+      {/* 中央の選択帯（Apple風の薄いグレーの囲み） */}
+      <div className="absolute top-[60px] left-0 right-0 h-[40px] bg-gray-100/80 rounded-xl pointer-events-none z-10" />
       
-      <div className="text-4xl font-bold text-gray-800 my-2 tabular-nums">
-        {value}
+      {/* 上下の半透明グラデーション */}
+      <div className="absolute top-0 left-0 right-0 h-[60px] bg-gradient-to-b from-white via-white/80 to-transparent pointer-events-none z-20" />
+      <div className="absolute bottom-0 left-0 right-0 h-[60px] bg-gradient-to-t from-white via-white/80 to-transparent pointer-events-none z-20" />
+
+      {/* スクロールする数字一覧 */}
+      <div
+        ref={containerRef}
+        onScroll={handleScroll}
+        onMouseDown={handleMouseDown}
+        onMouseLeave={handleMouseLeaveOrUp}
+        onMouseUp={handleMouseLeaveOrUp}
+        onMouseMove={handleMouseMove}
+        className="h-full overflow-y-auto snap-y snap-mandatory scroll-smooth cursor-grab active:cursor-grabbing [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none'] py-[60px]"
+      >
+        {options.map((opt) => (
+          <div
+            key={opt}
+            className={`h-[40px] flex items-center justify-center snap-center transition-all duration-150 ${
+              opt === value ? "text-2xl text-gray-900 font-bold scale-110" : "text-base text-gray-300 font-medium"
+            }`}
+          >
+            {opt}
+          </div>
+        ))}
       </div>
-      
-      <button 
-        onClick={handleDown} 
-        className="w-full py-2 text-gray-300 hover:text-emerald-500 hover:bg-emerald-50 rounded-xl transition-all flex justify-center"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
     </div>
   );
 }
@@ -71,11 +111,13 @@ export default function DashboardPage() {
   const [currentStampId, setCurrentStampId] = useState<string | null>(null);
   const [currentStartTimeStr, setCurrentStartTimeStr] = useState<string>("");
 
+  // 業務開始の時間選択モーダル制御（デフォルトを "09" 時 "00" 分 に設定）
   const [showStartModal, setShowStartModal] = useState<boolean>(false);
   const [showStartConfirmModal, setShowStartConfirmModal] = useState<boolean>(false);
   const [startHourInput, setStartHourInput] = useState<string>("09");
   const [startMinuteInput, setStartMinuteInput] = useState<string>("00");
 
+  // 業務終了の時間・休憩選択モーダル制御
   const [showEndModal, setShowEndModal] = useState<boolean>(false);
   const [showEndConfirmModal, setShowEndConfirmModal] = useState<boolean>(false);
   const [endHourInput, setEndHourInput] = useState<string>("18");
@@ -84,7 +126,7 @@ export default function DashboardPage() {
 
   const [customFooterMessage, setCustomFooterMessage] = useState<string>("");
 
-  // 数字のみの配列を生成
+  // 数字のみの配列（「時」「分」なし）
   const hoursOptions = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
   const minutesOptions = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'));
 
@@ -174,10 +216,10 @@ export default function DashboardPage() {
   const formatTime = (date: Date) => date.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   const formatDate = (date: Date) => date.toLocaleDateString("ja-JP", { year: "numeric", month: "long", day: "numeric", weekday: "long" });
 
+  // 💡 【修正】モーダルを開いたときのデフォルト初期値を「09:00」に設定
   const handleOpenStartModal = () => {
-    const now = new Date();
-    setStartHourInput(String(now.getHours()).padStart(2, '0'));
-    setStartMinuteInput(String(now.getMinutes()).padStart(2, '0'));
+    setStartHourInput("09");
+    setStartMinuteInput("00");
     setShowStartModal(true);
   };
 
@@ -376,24 +418,24 @@ export default function DashboardPage() {
         </div>
       </main>
 
-      {/* 🍏 1. 業務開始：操作確実な上下ステッパーUI */}
+      {/* 🍏 1. 業務開始：滑らかなドラムロールピッカー */}
       {showStartModal && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn">
           <div className="bg-white rounded-[32px] p-8 max-w-sm w-full mx-4 shadow-xl text-center space-y-8">
             <div className="space-y-1">
               <h4 className="text-lg font-semibold text-gray-800">開始時間</h4>
-              <p className="text-xs text-gray-400">上下の矢印を押して時間を合わせてください</p>
+              <p className="text-xs text-gray-400">ドラッグまたはスクロールで選択してください</p>
             </div>
 
-            {/* ステッパー本体 */}
-            <div className="flex items-center justify-center space-x-4 mx-auto">
-              <TimeStepper
+            {/* ドラムロールエリア */}
+            <div className="flex items-center justify-center space-x-2 bg-gray-50/50 p-2 rounded-3xl border border-gray-100 w-[200px] mx-auto">
+              <ScrollWheelPicker
                 options={hoursOptions}
                 value={startHourInput}
                 onChange={setStartHourInput}
               />
-              <span className="text-3xl font-bold text-gray-300 pb-1">:</span>
-              <TimeStepper
+              <span className="text-2xl font-bold text-gray-800 pb-1">:</span>
+              <ScrollWheelPicker
                 options={minutesOptions}
                 value={startMinuteInput}
                 onChange={setStartMinuteInput}
@@ -408,7 +450,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* 🍏 2. 業務開始：シンプルな確認モーダル */}
+      {/* 🍏 2. 業務開始：確認モーダル */}
       {showStartConfirmModal && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn">
           <div className="bg-white rounded-[32px] p-8 max-w-sm w-full mx-4 shadow-xl text-center space-y-6">
@@ -430,7 +472,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* 🍏 3. 業務終了：時間ステッパー＆休憩選択 */}
+      {/* 🍏 3. 業務終了：時間＆休憩ドラムロールピッカー */}
       {showEndModal && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn">
           <div className="bg-white rounded-[32px] p-8 max-w-sm w-full mx-4 shadow-xl text-center space-y-8">
@@ -439,15 +481,15 @@ export default function DashboardPage() {
             </div>
 
             <div className="space-y-6">
-              {/* 終了時間のステッパー */}
-              <div className="flex items-center justify-center space-x-4 mx-auto">
-                <TimeStepper
+              {/* 終了時間のドラムロール */}
+              <div className="flex items-center justify-center space-x-2 bg-gray-50/50 p-2 rounded-3xl border border-gray-100 w-[200px] mx-auto">
+                <ScrollWheelPicker
                   options={hoursOptions}
                   value={endHourInput}
                   onChange={setEndHourInput}
                 />
-                <span className="text-3xl font-bold text-gray-300 pb-1">:</span>
-                <TimeStepper
+                <span className="text-2xl font-bold text-gray-800 pb-1">:</span>
+                <ScrollWheelPicker
                   options={minutesOptions}
                   value={endMinuteInput}
                   onChange={setEndMinuteInput}

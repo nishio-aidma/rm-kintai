@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { auth } from "@/lib/firebase";
 import { attendanceRepository } from "@/lib/attendanceRepository";
 
-// 🍏 【文字消え解消版】ドラムロール選択UIコンポーネント（重ね順を正しく修正）
+// 🍏 【ボタン競合バグ解消版】ドラムロール選択UIコンポーネント
 function ScrollWheelPicker({
   options,
   value,
@@ -16,19 +16,33 @@ function ScrollWheelPicker({
   onChange: (val: string) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  
+  // 💡 【重要】ボタンなどプログラム側で数字を変更した直後かどうかの判定フラグ
+  const isAutoScrolling = useRef(false);
 
-  // 初期表示時に選択値へスクロール
+  // 初期表示時や、ボタン等で値が変わった時に選択値へスクロール
   useEffect(() => {
     if (containerRef.current) {
       const index = options.indexOf(value);
       if (index !== -1) {
-        containerRef.current.scrollTop = index * 40;
+        isAutoScrolling.current = true; // プログラム操作開始をマーク
+        
+        // スムーズスクロールをさせず、即座に該当位置へジャンプさせる
+        containerRef.current.scrollTo({ top: index * 40, behavior: 'auto' });
+        
+        // 移動が完了するまでのわずかな時間、手動スクロールの読み取りをロックして引き戻しを防ぐ
+        setTimeout(() => {
+          isAutoScrolling.current = false;
+        }, 50);
       }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value]);
+  }, [value, options]);
 
+  // ドラムを手でスクロールした時の処理
   const handleScroll = () => {
+    // 💡 プログラム操作で移動中の時は、システムの上書き（引き戻し）を防ぐため無視する
+    if (isAutoScrolling.current) return;
+
     if (containerRef.current) {
       const currentScroll = containerRef.current.scrollTop;
       const index = Math.round(currentScroll / 40);
@@ -38,28 +52,26 @@ function ScrollWheelPicker({
     }
   };
 
-  const handleItemClick = (opt: string, index: number) => {
+  // 数字を直接クリックした際の処理
+  const handleItemClick = (opt: string) => {
     onChange(opt);
-    if (containerRef.current) {
-      containerRef.current.scrollTop = index * 40;
-    }
   };
 
   return (
     <div className="relative h-[160px] w-20 overflow-hidden select-none bg-gray-50/50 rounded-2xl border border-gray-100">
-      {/* 1. 一番後ろに配置する緑色の選択枠（z-0） */}
+      {/* 中央の選択枠 */}
       <div className="absolute top-[60px] left-1 right-1 h-[40px] bg-emerald-100/80 border-2 border-emerald-500 rounded-xl pointer-events-none z-0" />
 
-      {/* 2. 手前に表示する数字リスト（z-10） */}
+      {/* スクロールする数字一覧（💡 scroll-smoothを削除して競合を解消） */}
       <div
         ref={containerRef}
         onScroll={handleScroll}
-        className="relative z-10 h-full overflow-y-auto snap-y snap-mandatory scroll-smooth cursor-pointer [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none'] py-[60px]"
+        className="relative z-10 h-full overflow-y-auto snap-y snap-mandatory cursor-pointer [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none'] py-[60px]"
       >
-        {options.map((opt, idx) => (
+        {options.map((opt) => (
           <div
             key={opt}
-            onClick={() => handleItemClick(opt, idx)}
+            onClick={() => handleItemClick(opt)}
             className={`h-[40px] flex items-center justify-center snap-center transition-all ${
               opt === value
                 ? "text-2xl text-gray-900 font-extrabold"
@@ -89,13 +101,11 @@ export default function DashboardPage() {
   const [currentStampId, setCurrentStampId] = useState<string | null>(null);
   const [currentStartTimeStr, setCurrentStartTimeStr] = useState<string>("");
 
-  // 業務開始の時間選択モーダル制御（デフォルト 09:00）
   const [showStartModal, setShowStartModal] = useState<boolean>(false);
   const [showStartConfirmModal, setShowStartConfirmModal] = useState<boolean>(false);
   const [startHourInput, setStartHourInput] = useState<string>("09");
   const [startMinuteInput, setStartMinuteInput] = useState<string>("00");
 
-  // 業務終了の時間・休憩選択モーダル制御
   const [showEndModal, setShowEndModal] = useState<boolean>(false);
   const [showEndConfirmModal, setShowEndConfirmModal] = useState<boolean>(false);
   const [endHourInput, setEndHourInput] = useState<string>("18");
@@ -199,7 +209,6 @@ export default function DashboardPage() {
     setShowStartModal(true);
   };
 
-  // 1分微調整用関数
   const adjustMinute = (currentMinStr: string, delta: number, setMinFunc: (val: string) => void) => {
     const current = parseInt(currentMinStr, 10);
     let next = (current + delta + 60) % 60;
@@ -431,7 +440,7 @@ export default function DashboardPage() {
                     <button
                       type="button"
                       onClick={() => adjustMinute(startMinuteInput, 1, setStartMinuteInput)}
-                      className="w-7 h-7 bg-gray-100 hover:bg-emerald-500 text-gray-600 hover:text-white border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center shadow-sm active:scale-95 transition-all"
+                      className="w-7 h-7 bg-gray-100 hover:bg-emerald-500 text-gray-600 hover:text-white border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center shadow-sm active:scale-95 transition-all cursor-pointer"
                       title="1分進める"
                     >
                       ▲
@@ -439,7 +448,7 @@ export default function DashboardPage() {
                     <button
                       type="button"
                       onClick={() => adjustMinute(startMinuteInput, -1, setStartMinuteInput)}
-                      className="w-7 h-7 bg-gray-100 hover:bg-emerald-500 text-gray-600 hover:text-white border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center shadow-sm active:scale-95 transition-all"
+                      className="w-7 h-7 bg-gray-100 hover:bg-emerald-500 text-gray-600 hover:text-white border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center shadow-sm active:scale-95 transition-all cursor-pointer"
                       title="1分戻す"
                     >
                       ▼
@@ -455,7 +464,7 @@ export default function DashboardPage() {
                     key={min}
                     type="button"
                     onClick={() => setStartMinuteInput(min)}
-                    className={`px-3 py-1 rounded-xl text-xs font-bold transition-all ${
+                    className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                       startMinuteInput === min
                         ? "bg-emerald-500 text-white shadow-sm"
                         : "bg-gray-100 text-gray-600 hover:bg-gray-200"
@@ -468,8 +477,8 @@ export default function DashboardPage() {
             </div>
 
             <div className="flex space-x-3 pt-2">
-              <button onClick={() => setShowStartModal(false)} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-600 font-semibold py-3.5 rounded-xl text-sm transition-all">キャンセル</button>
-              <button onClick={handleProceedToStartConfirm} className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white font-semibold py-3.5 rounded-xl text-sm transition-all">次へ</button>
+              <button onClick={() => setShowStartModal(false)} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-600 font-semibold py-3.5 rounded-xl text-sm transition-all cursor-pointer">キャンセル</button>
+              <button onClick={handleProceedToStartConfirm} className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white font-semibold py-3.5 rounded-xl text-sm transition-all cursor-pointer">次へ</button>
             </div>
           </div>
         </div>
@@ -490,8 +499,8 @@ export default function DashboardPage() {
             </div>
 
             <div className="flex flex-col space-y-2 pt-2">
-              <button onClick={handleConfirmStartWork} className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-semibold py-3.5 rounded-xl text-sm transition-all">確定して送信</button>
-              <button onClick={() => { setShowStartConfirmModal(false); setShowStartModal(true); }} className="w-full bg-white text-emerald-600 font-semibold py-3.5 rounded-xl text-sm transition-all">修正する</button>
+              <button onClick={handleConfirmStartWork} className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-semibold py-3.5 rounded-xl text-sm transition-all cursor-pointer">確定して送信</button>
+              <button onClick={() => { setShowStartConfirmModal(false); setShowStartModal(true); }} className="w-full bg-white text-emerald-600 font-semibold py-3.5 rounded-xl text-sm transition-all cursor-pointer">修正する</button>
             </div>
           </div>
         </div>
@@ -525,7 +534,7 @@ export default function DashboardPage() {
                       <button
                         type="button"
                         onClick={() => adjustMinute(endMinuteInput, 1, setEndMinuteInput)}
-                        className="w-7 h-7 bg-gray-100 hover:bg-emerald-500 text-gray-600 hover:text-white border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center shadow-sm active:scale-95 transition-all"
+                        className="w-7 h-7 bg-gray-100 hover:bg-emerald-500 text-gray-600 hover:text-white border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center shadow-sm active:scale-95 transition-all cursor-pointer"
                         title="1分進める"
                       >
                         ▲
@@ -533,7 +542,7 @@ export default function DashboardPage() {
                       <button
                         type="button"
                         onClick={() => adjustMinute(endMinuteInput, -1, setEndMinuteInput)}
-                        className="w-7 h-7 bg-gray-100 hover:bg-emerald-500 text-gray-600 hover:text-white border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center shadow-sm active:scale-95 transition-all"
+                        className="w-7 h-7 bg-gray-100 hover:bg-emerald-500 text-gray-600 hover:text-white border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center shadow-sm active:scale-95 transition-all cursor-pointer"
                         title="1分戻す"
                       >
                         ▼
@@ -548,7 +557,7 @@ export default function DashboardPage() {
                       key={min}
                       type="button"
                       onClick={() => setEndMinuteInput(min)}
-                      className={`px-3 py-1 rounded-xl text-xs font-bold transition-all ${
+                      className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                         endMinuteInput === min
                           ? "bg-gray-800 text-white shadow-sm"
                           : "bg-gray-100 text-gray-600 hover:bg-gray-200"
@@ -579,8 +588,8 @@ export default function DashboardPage() {
             </div>
 
             <div className="flex space-x-3 pt-2">
-              <button onClick={() => setShowEndModal(false)} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-600 font-semibold py-3.5 rounded-xl text-sm transition-all">キャンセル</button>
-              <button onClick={handleProceedToEndConfirm} className="flex-1 bg-gray-800 hover:bg-gray-900 text-white font-semibold py-3.5 rounded-xl text-sm transition-all">次へ</button>
+              <button onClick={() => setShowEndModal(false)} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-600 font-semibold py-3.5 rounded-xl text-sm transition-all cursor-pointer">キャンセル</button>
+              <button onClick={handleProceedToEndConfirm} className="flex-1 bg-gray-800 hover:bg-gray-900 text-white font-semibold py-3.5 rounded-xl text-sm transition-all cursor-pointer">次へ</button>
             </div>
           </div>
         </div>
@@ -604,8 +613,8 @@ export default function DashboardPage() {
             </div>
 
             <div className="flex flex-col space-y-2 pt-2">
-              <button onClick={handleConfirmEndWork} className="w-full bg-gray-800 hover:bg-gray-900 text-white font-semibold py-3.5 rounded-xl text-sm transition-all">確定して送信</button>
-              <button onClick={() => { setShowEndConfirmModal(false); setShowStartModal(true); }} className="w-full bg-white text-gray-600 font-semibold py-3.5 rounded-xl text-sm transition-all">修正する</button>
+              <button onClick={handleConfirmEndWork} className="w-full bg-gray-800 hover:bg-gray-900 text-white font-semibold py-3.5 rounded-xl text-sm transition-all cursor-pointer">確定して送信</button>
+              <button onClick={() => { setShowEndConfirmModal(false); setShowEndModal(true); }} className="w-full bg-white text-gray-600 font-semibold py-3.5 rounded-xl text-sm transition-all cursor-pointer">修正する</button>
             </div>
           </div>
         </div>

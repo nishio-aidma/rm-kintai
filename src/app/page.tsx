@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { auth } from "@/lib/firebase";
 import { attendanceRepository } from "@/lib/attendanceRepository";
 
-// 🍏 【新規追加】Apple（iOS）風のドラムロール選択UIコンポーネント
-function ScrollWheelPicker({
+// 🍏 【新規変更】操作感抜群の上下クリック式ピッカー（ステッパー）
+function TimeStepper({
   options,
   value,
   onChange,
@@ -15,54 +15,43 @@ function ScrollWheelPicker({
   value: string;
   onChange: (val: string) => void;
 }) {
-  const containerRef = useRef<HTMLDivElement>(null);
+  const currentIndex = options.indexOf(value);
 
-  // 初期表示時に選択されている値の位置まで自動スクロール
-  useEffect(() => {
-    if (containerRef.current) {
-      const index = options.indexOf(value);
-      if (index !== -1) {
-        containerRef.current.scrollTop = index * 40;
-      }
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // 上ボタン（数字を増やす、一番上なら一番下へループ）
+  const handleUp = () => {
+    const nextIndex = (currentIndex + 1) % options.length;
+    onChange(options[nextIndex]);
+  };
 
-  // スクロール位置から現在中央にある値を計算してセット
-  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    const scrollTop = e.currentTarget.scrollTop;
-    const index = Math.round(scrollTop / 40);
-    if (options[index] && options[index] !== value) {
-      onChange(options[index]);
-    }
+  // 下ボタン（数字を減らす、一番下なら一番上へループ）
+  const handleDown = () => {
+    const nextIndex = (currentIndex - 1 + options.length) % options.length;
+    onChange(options[nextIndex]);
   };
 
   return (
-    <div 
-      className="relative h-[120px] w-16 overflow-hidden select-none"
-      style={{ 
-        maskImage: 'linear-gradient(to bottom, transparent, black 35%, black 65%, transparent)',
-        WebkitMaskImage: 'linear-gradient(to bottom, transparent, black 35%, black 65%, transparent)'
-      }}
-    >
-      <div
-        ref={containerRef}
-        onScroll={handleScroll}
-        className="h-full overflow-y-auto snap-y snap-mandatory [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']"
+    <div className="flex flex-col items-center justify-center w-20">
+      <button 
+        onClick={handleUp} 
+        className="w-full py-2 text-gray-300 hover:text-emerald-500 hover:bg-emerald-50 rounded-xl transition-all flex justify-center"
       >
-        <div className="h-[40px]"></div>
-        {options.map((opt) => (
-          <div
-            key={opt}
-            className={`h-[40px] flex items-center justify-center snap-center transition-all duration-200 ${
-              opt === value ? "text-2xl text-gray-900 font-bold" : "text-lg text-gray-400 font-medium"
-            }`}
-          >
-            {opt}
-          </div>
-        ))}
-        <div className="h-[40px]"></div>
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 15l7-7 7 7" />
+        </svg>
+      </button>
+      
+      <div className="text-4xl font-bold text-gray-800 my-2 tabular-nums">
+        {value}
       </div>
+      
+      <button 
+        onClick={handleDown} 
+        className="w-full py-2 text-gray-300 hover:text-emerald-500 hover:bg-emerald-50 rounded-xl transition-all flex justify-center"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
     </div>
   );
 }
@@ -95,7 +84,7 @@ export default function DashboardPage() {
 
   const [customFooterMessage, setCustomFooterMessage] = useState<string>("");
 
-  // 数字のみの配列を生成（「時」「分」なし）
+  // 数字のみの配列を生成
   const hoursOptions = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
   const minutesOptions = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'));
 
@@ -341,6 +330,7 @@ export default function DashboardPage() {
               {userName ? `${userName} さん、今日もありがとうございます！` : "今日もありがとうございます！"}
             </p>
 
+            {/* 管理者のみ内部ステータス表示 */}
             {workState === "working" && (userRole === "owner" || userRole === "admin") && currentStartTimeStr && (
               <p className="text-xs font-medium text-emerald-600 bg-emerald-50 py-1.5 px-4 rounded-full inline-block animate-fadeIn">
                 内部計測中（選択開始時刻: {currentStartTimeStr}）
@@ -386,23 +376,24 @@ export default function DashboardPage() {
         </div>
       </main>
 
-      {/* 🍏 1. 業務開始：Apple風の洗練されたドラムロールピッカー */}
+      {/* 🍏 1. 業務開始：操作確実な上下ステッパーUI */}
       {showStartModal && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn">
           <div className="bg-white rounded-[32px] p-8 max-w-sm w-full mx-4 shadow-xl text-center space-y-8">
             <div className="space-y-1">
               <h4 className="text-lg font-semibold text-gray-800">開始時間</h4>
+              <p className="text-xs text-gray-400">上下の矢印を押して時間を合わせてください</p>
             </div>
 
-            {/* ドラムロール本体 */}
-            <div className="flex items-center justify-center space-x-2 bg-gray-50/50 p-2 rounded-3xl border border-gray-100 w-[200px] mx-auto">
-              <ScrollWheelPicker
+            {/* ステッパー本体 */}
+            <div className="flex items-center justify-center space-x-4 mx-auto">
+              <TimeStepper
                 options={hoursOptions}
                 value={startHourInput}
                 onChange={setStartHourInput}
               />
-              <span className="text-2xl font-bold text-gray-800 pb-1">:</span>
-              <ScrollWheelPicker
+              <span className="text-3xl font-bold text-gray-300 pb-1">:</span>
+              <TimeStepper
                 options={minutesOptions}
                 value={startMinuteInput}
                 onChange={setStartMinuteInput}
@@ -439,7 +430,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* 🍏 3. 業務終了：時間＆休憩ドラムロールピッカー */}
+      {/* 🍏 3. 業務終了：時間ステッパー＆休憩選択 */}
       {showEndModal && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn">
           <div className="bg-white rounded-[32px] p-8 max-w-sm w-full mx-4 shadow-xl text-center space-y-8">
@@ -448,15 +439,15 @@ export default function DashboardPage() {
             </div>
 
             <div className="space-y-6">
-              {/* 終了時間のドラムロール */}
-              <div className="flex items-center justify-center space-x-2 bg-gray-50/50 p-2 rounded-3xl border border-gray-100 w-[200px] mx-auto">
-                <ScrollWheelPicker
+              {/* 終了時間のステッパー */}
+              <div className="flex items-center justify-center space-x-4 mx-auto">
+                <TimeStepper
                   options={hoursOptions}
                   value={endHourInput}
                   onChange={setEndHourInput}
                 />
-                <span className="text-2xl font-bold text-gray-800 pb-1">:</span>
-                <ScrollWheelPicker
+                <span className="text-3xl font-bold text-gray-300 pb-1">:</span>
+                <TimeStepper
                   options={minutesOptions}
                   value={endMinuteInput}
                   onChange={setEndMinuteInput}

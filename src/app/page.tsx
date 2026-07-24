@@ -9,6 +9,9 @@ export default function DashboardPage() {
   const router = useRouter();
   const [currentTime, setCurrentTime] = useState(new Date());
   
+  // 💡 ハイドレーションエラー（画面作成時の1秒のズレ）を防ぐための準備完了フラグ
+  const [isMounted, setIsMounted] = useState(false);
+  
   // 💡 スピード改善：初期状態の「読み込み中...」を極力なくすため、空文字をデフォルトに
   const [userEmail, setUserEmail] = useState<string>("");
   const [userName, setUserName] = useState<string>("");
@@ -27,8 +30,9 @@ export default function DashboardPage() {
   // オーナーが設定したカスタムメッセージを保管するステート
   const [customFooterMessage, setCustomFooterMessage] = useState<string>("");
 
-  // ⏱️ 1秒ごとに時計を動かすタイマー
+  // ⏱️ 1秒ごとに時計を動かすタイマー ＆ 準備完了フラグの設定
   useEffect(() => {
+    setIsMounted(true);
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
@@ -223,9 +227,12 @@ export default function DashboardPage() {
           
           {/* 時計・挨拶エリア */}
           <div className="space-y-4">
-            {/* 💡 日付を text-sm から text-base へ一段階大きく最適化 */}
-            <p className="text-base text-gray-400 font-bold uppercase tracking-widest">{formatDate(currentTime)}</p>
-            <h2 className="text-7xl font-black text-gray-800 tabular-nums tracking-tighter">{formatTime(currentTime)}</h2>
+            <p className="text-base text-gray-400 font-bold uppercase tracking-widest">
+              {isMounted ? formatDate(currentTime) : "----年--月--日"}
+            </p>
+            <h2 className="text-7xl font-black text-gray-800 tabular-nums tracking-tighter">
+              {isMounted ? formatTime(currentTime) : "--:--:--"}
+            </h2>
             <div className="h-1.5 w-12 bg-emerald-400 mx-auto rounded-full my-4"></div>
             <p className="text-2xl font-extrabold text-gray-700">
               {userName ? `${userName} さん、今日もありがとうございます！` : "今日もありがとうございます！"}
@@ -239,7 +246,7 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* 💡 ボタンデザイン変更：絵文字を削除し、py-6、rounded-2xlでひと回りスタイリッシュに縮小 */}
+          {/* ボタンエリア */}
           <div className="flex flex-col sm:flex-row justify-center items-stretch space-y-4 sm:space-y-0 sm:space-x-6 max-w-xl mx-auto">
             <button 
               onClick={handleStartWork} 

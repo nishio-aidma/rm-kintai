@@ -191,7 +191,15 @@ export default function TabRecords({
                 const isLeaderVerified = !!record.leaderVerified;
 
                 return (
-                  <tr key={record.id} className="hover:bg-gray-50/30 transition-colors">
+                  /* 💡 【視認性の向上】リーダー確認済みの行は薄い緑背景 (bg-[#34C759]/10) でハイライト */
+                  <tr 
+                    key={record.id} 
+                    className={`transition-colors ${
+                      isLeaderVerified 
+                        ? "bg-[#34C759]/10 hover:bg-[#34C759]/15 font-medium" 
+                        : "hover:bg-gray-50/30"
+                    }`}
+                  >
                     
                     <td className="py-2 pl-4 text-center">
                       <button 
@@ -255,22 +263,29 @@ export default function TabRecords({
                       )}
                     </td>
 
+                    {/* 💡 【制限の追加】本人確認（isVerified）が未完了の場合はボタンをロック（disabled） */}
                     <td className="py-2 text-center">
                       {isLeaderVerified ? (
                         <button
                           onClick={() => handleToggleLeaderVerify(record.id, true)}
-                          className="text-[10px] bg-purple-50 hover:bg-amber-50 text-purple-700 hover:text-amber-700 border border-purple-200 hover:border-amber-300 px-2.5 py-0.5 rounded-xl font-extrabold shadow-sm inline-block transition-all group cursor-pointer"
-                          title="リーダー確認を解除して未確認に戻します"
+                          className="text-[10px] bg-emerald-600 hover:bg-amber-500 text-white border border-emerald-600 hover:border-amber-500 px-2.5 py-0.5 rounded-xl font-extrabold shadow-sm inline-block transition-all group cursor-pointer"
+                          title="クリックするとリーダー確認を解除して未確認に戻します"
                         >
-                          <span className="group-hover:hidden">🔮 承認済み</span>
+                          <span className="group-hover:hidden">☑️ 承認済み</span>
                           <span className="hidden group-hover:inline">🔄 解除する</span>
                         </button>
                       ) : (
                         <button
                           onClick={() => handleToggleLeaderVerify(record.id, false)}
-                          disabled={record.endTime === ""}
-                          className="text-[10px] bg-white hover:bg-purple-600 text-gray-500 hover:text-white border border-gray-200 hover:border-purple-600 px-2.5 py-0.5 rounded-xl font-bold shadow-sm transition-all disabled:opacity-20 disabled:pointer-events-none cursor-pointer"
-                          title="このレコードをリーダーとして承認します"
+                          disabled={record.endTime === "" || !isVerified}
+                          className="text-[10px] bg-white hover:bg-purple-600 text-gray-500 hover:text-white border border-gray-200 hover:border-purple-600 px-2.5 py-0.5 rounded-xl font-bold shadow-sm transition-all disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
+                          title={
+                            !isVerified 
+                              ? "本人が確認済み（✅確認済み）になるまでリーダー確認は行えません" 
+                              : record.endTime === "" 
+                              ? "稼働中のデータは確認できません" 
+                              : "このレコードをリーダーとして承認します"
+                          }
                         >
                           🔍 確認する
                         </button>

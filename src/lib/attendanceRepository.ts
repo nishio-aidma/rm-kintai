@@ -38,6 +38,16 @@ export interface AccountRequest {
   createdAt: any;
 }
 
+// 💡 秒数を一切無視し、時刻文字列から「時」と「分」だけを取り出して総分数に変換するヘルパー関数
+const parseTimeToMinutes = (timeStr: string): number => {
+  if (!timeStr) return 0;
+  const parts = timeStr.split(":").map(Number);
+  const h = parts[0] || 0;
+  const m = parts[1] || 0;
+  // 秒数 (parts[2]) は計算に含めず完全切り捨て
+  return h * 60 + m;
+};
+
 export const attendanceRepository = {
   // 👑 1. 業務開始データを保存（選択時間と実際の操作時間の両方を保存するよう拡張）
   saveStartRecord: async (data: AttendanceRecordInput) => {
@@ -68,7 +78,7 @@ export const attendanceRepository = {
     }
   },
 
-  // 👑 2. 業務終了時刻の保存（選択時間と実際の操作時間の両方を更新するよう拡張）
+  // 👑 2. 業務終了時刻の保存（秒数を切り捨てて分単位で正確に計算）
   saveEndRecord: async (stampId: string, endTimeStr: string, breakMinutes: number, actualEndTimeStr?: string) => {
     try {
       const recordRef = doc(db, "attendance_records", stampId);
@@ -82,16 +92,17 @@ export const attendanceRepository = {
         const data = recordSnap.data();
         const startTimeStr = data.startTime;
         if (startTimeStr && endTimeStr) {
-          const [startH, startM] = startTimeStr.split(":").map(Number);
-          const [endH, endM] = endTimeStr.split(":").map(Number);
-          const startTotalMinutes = startH * 60 + startM;
-          let endTotalMinutes = endH * 60 + endM;
+          // 秒数を切り捨てて開始・終了の総分数を算出
+          const startTotalMinutes = parseTimeToMinutes(startTimeStr);
+          let endTotalMinutes = parseTimeToMinutes(endTimeStr);
           
+          // 日を跨ぐ場合（終了時刻が開始時刻以前の場合）の補正
           if (endTotalMinutes <= startTotalMinutes) {
             endTotalMinutes += 24 * 60;
           }
           
           const totalDiff = endTotalMinutes - startTotalMinutes;
+          // 分単位で実働時間を算出（秒は切り捨て済み）
           workMinutes = Math.max(0, totalDiff - validBreakMinutes);
           workHours = Math.round((workMinutes / 60) * 100) / 100;
         }
@@ -158,7 +169,7 @@ export const attendanceRepository = {
     }
   },
 
-  // 6. 管理者が打刻生データを手動修正
+  // 6. 管理者が打刻生データを手動修正（秒数を切り捨てて分単位で再計算）
   updateRecordByAdmin: async (stampId: string, updatedFields: { workDate: string; startTime: string; endTime: string; breakMinutes: number }) => {
     try {
       const recordRef = doc(db, "attendance_records", stampId);
@@ -167,10 +178,8 @@ export const attendanceRepository = {
       
       const validBreakMinutes = Math.min(60, updatedFields.breakMinutes);
       
-      const [startH, startM] = updatedFields.startTime.split(":").map(Number);
-      const [endH, endM] = updatedFields.endTime.split(":").map(Number);
-      const startTotalMinutes = startH * 60 + startM;
-      let endTotalMinutes = endH * 60 + endM;
+      const startTotalMinutes = parseTimeToMinutes(updatedFields.startTime);
+      let endTotalMinutes = parseTimeToMinutes(updatedFields.endTime);
       
       if (endTotalMinutes <= startTotalMinutes) {
         endTotalMinutes += 24 * 60;
@@ -193,7 +202,7 @@ export const attendanceRepository = {
     }
   },
 
-  // 7. 管理者が1から打刻レコードを手動作成
+  // 7. 管理者が1から打刻レコードを手動作成（秒数を切り捨てて分単位で計算）
   createRecordByAdmin: async (email: string, userName: string, fields: { workDate: string; startTime: string; endTime: string; breakMinutes: number }) => {
     try {
       const attendanceCollection = collection(db, "attendance_records");
@@ -202,10 +211,8 @@ export const attendanceRepository = {
       
       const validBreakMinutes = Math.min(60, fields.breakMinutes);
 
-      const [startH, startM] = fields.startTime.split(":").map(Number);
-      const [endH, endM] = fields.endTime.split(":").map(Number);
-      const startTotalMinutes = startH * 60 + startM;
-      let endTotalMinutes = endH * 60 + endM;
+      const startTotalMinutes = parseTimeToMinutes(fields.startTime);
+      let endTotalMinutes = parseTimeToMinutes(fields.endTime);
 
       if (endTotalMinutes <= startTotalMinutes) {
         endTotalMinutes += 24 * 60;

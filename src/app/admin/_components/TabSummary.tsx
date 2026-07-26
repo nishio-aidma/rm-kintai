@@ -12,6 +12,7 @@ interface AdminAttendanceRecord {
   endTime: string;
   breakMinutes: number;
   workHours: number;
+  workMinutes?: number;
   submitted: boolean;
 }
 
@@ -114,6 +115,7 @@ export default function TabSummary({
       totalDays: number; 
       totalSessions: number; 
       totalHours: number; 
+      totalMinutes: number;
       totalReward: number;
       hasUnsubmitted: boolean; 
       hasAttendance: boolean;  
@@ -138,6 +140,7 @@ export default function TabSummary({
       totalDays: 0,
       totalSessions: 0,
       totalHours: 0,
+      totalMinutes: 0,
       totalReward: 0,
       hasUnsubmitted: false,
       hasAttendance: false
@@ -151,6 +154,7 @@ export default function TabSummary({
     
     const userRecords = (attendanceRecords as AdminAttendanceRecord[]).filter(r => r.workDate.startsWith(selectedMonth) && r.email === email);
     const totalHours = userRecords.reduce((sum, r) => sum + (r.workHours || 0), 0);
+    const totalMinutes = userRecords.reduce((sum, r) => sum + (r.workMinutes ?? Math.round((r.workHours || 0) * 60)), 0);
     const roundedHours = Math.round(totalHours * 100) / 100;
     const totalDays = new Set(userRecords.map(r => r.workDate)).size;
     const totalSessions = userRecords.filter(r => r.endTime && r.endTime !== "---").length;
@@ -159,7 +163,7 @@ export default function TabSummary({
     const isSubmitted = userRecords.length > 0 && userRecords.some(r => r.submitted);
 
     if (!departmentSummaries[deptName]) {
-      departmentSummaries[deptName] = { memberCount: 0, totalDays: 0, totalSessions: 0, totalHours: 0, totalReward: 0, hasUnsubmitted: false, hasAttendance: false };
+      departmentSummaries[deptName] = { memberCount: 0, totalDays: 0, totalSessions: 0, totalHours: 0, totalMinutes: 0, totalReward: 0, hasUnsubmitted: false, hasAttendance: false };
     }
     
     departmentSummaries[deptName].hasAttendance = true;
@@ -170,6 +174,7 @@ export default function TabSummary({
     departmentSummaries[deptName].totalDays += totalDays;
     departmentSummaries[deptName].totalSessions += totalSessions;
     departmentSummaries[deptName].totalHours += roundedHours;
+    departmentSummaries[deptName].totalMinutes += totalMinutes;
     departmentSummaries[deptName].totalReward += totalReward;
   });
 
@@ -297,7 +302,6 @@ export default function TabSummary({
         </div>
       </div>
 
-      {/* 💡 【超大改造】横スクロールを完全に排除。全体を引き伸ばし（w-full）、％比率で等間隔に配置 */}
       {viewMode === "user" ? (
         displayedEmails.length === 0 ? (
           <p className="text-center text-gray-400 py-10 font-medium">該当する提出状態・所属チームのメンバーはいません。</p>
@@ -306,7 +310,6 @@ export default function TabSummary({
             <table className="w-full text-left border-collapse table-fixed">
               <thead>
                 <tr className="border-b border-gray-100 text-gray-400 font-bold bg-gray-50/50 text-[11px] uppercase tracking-wider">
-                  {/* 💡 権限（ログイン状態）に合わせて、全列の間隔が1ミリも狂わず等間隔になるようインライン％幅を動的コントロール */}
                   <th className="text-center px-3 py-2.5" style={{ width: "6%" }}>
                     <button 
                       onClick={handleSelectAll}
@@ -321,8 +324,11 @@ export default function TabSummary({
                   <th className="px-3 py-2.5" style={{ width: currentUserRole === "owner" ? "16%" : "22%" }}>所属チーム</th>
                   <th className="text-center px-3 py-2.5" style={{ width: currentUserRole === "owner" ? "9%" : "10%" }}>出勤日数</th>
                   <th className="text-center px-3 py-2.5" style={{ width: currentUserRole === "owner" ? "9%" : "10%" }}>出勤回数</th>
-                  <th className="text-right px-3 py-2.5" style={{ width: currentUserRole === "owner" ? "10%" : "10%" }}>勤務時間</th>
-                  {currentUserRole === "owner" && <th className="text-right px-3 py-2.5" style={{ width: "11%" }}>設定時給</th>}
+                  
+                  {/* 💡 【修正点1】「勤務時間」から「稼働時間」へ変更 */}
+                  <th className="text-right px-3 py-2.5" style={{ width: currentUserRole === "owner" ? "12%" : "12%" }}>稼働時間</th>
+                  
+                  {currentUserRole === "owner" && <th className="text-right px-3 py-2.5" style={{ width: "9%" }}>設定時給</th>}
                   {currentUserRole === "owner" && <th className="text-right pr-4 text-emerald-600" style={{ width: "13%" }}>報酬額（税抜）</th>}
                 </tr>
               </thead>
@@ -332,6 +338,12 @@ export default function TabSummary({
                   const userRecords = (attendanceRecords as AdminAttendanceRecord[]).filter(r => r.workDate.startsWith(selectedMonth) && r.email === email);
                   const totalHours = userRecords.reduce((sum, r) => sum + (r.workHours || 0), 0);
                   const roundedHours = Math.round(totalHours * 100) / 100;
+                  
+                  // 💡 合計分数から「●時間●分」の形式を算出
+                  const totalMinutes = userRecords.reduce((sum, r) => sum + (r.workMinutes ?? Math.round((r.workHours || 0) * 60)), 0);
+                  const displayH = Math.floor(totalMinutes / 60);
+                  const displayM = totalMinutes % 60;
+
                   const totalDays = new Set(userRecords.map(r => r.workDate)).size;
                   const totalSessions = userRecords.filter(r => r.endTime && r.endTime !== "---").length;
                   const totalReward = Math.round(roundedHours * meta.hourlyRate);
@@ -358,7 +370,6 @@ export default function TabSummary({
                       </td>
                       <td className="tabular-nums text-gray-400 px-3 py-2.5">{meta.managementNumber}</td>
                       <td className="font-bold text-gray-900 px-3 py-2.5 truncate" title={meta.name}>{meta.name}</td>
-                      {/* 💡 メールアドレス列の td の記述をバッサリ完全削除！ */}
                       <td className="px-3 py-2.5 truncate">
                         <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded font-bold text-[10px] inline-block truncate max-w-full" title={meta.department}>
                           {meta.department}
@@ -366,7 +377,12 @@ export default function TabSummary({
                       </td>
                       <td className="text-center tabular-nums px-3 py-2.5 text-gray-700">{totalDays} 日</td>
                       <td className="text-center tabular-nums font-bold text-purple-600 px-3 py-2.5">{totalSessions} 回</td>
-                      <td className="text-right tabular-nums px-3 py-2.5 text-gray-800 font-semibold">{roundedHours} 時間</td>
+                      
+                      {/* 💡 【修正点2】「●時間●分」形式で表示 */}
+                      <td className="text-right tabular-nums px-3 py-2.5 text-gray-800 font-semibold whitespace-nowrap">
+                        {displayH}時間{displayM}分
+                      </td>
+                      
                       {currentUserRole === "owner" && <td className="text-right tabular-nums px-3 py-2.5">¥{meta.hourlyRate.toLocaleString()}</td>}
                       {currentUserRole === "owner" && <td className="text-right pr-4 tabular-nums font-black text-emerald-600 text-sm">¥{totalReward.toLocaleString()}</td>}
                     </tr>
@@ -390,7 +406,10 @@ export default function TabSummary({
                   <th className="py-2.5 text-center" style={{ width: currentUserRole === "owner" ? "12%" : "13%" }}>対象稼働人数</th>
                   <th className="py-2.5 text-center" style={{ width: currentUserRole === "owner" ? "12%" : "13%" }}>チーム総出勤日数</th>
                   <th className="py-2.5 text-center" style={{ width: currentUserRole === "owner" ? "12%" : "13%" }}>チーム総出勤回数</th>
-                  <th className="py-2.5 text-right" style={{ width: currentUserRole === "owner" ? "13%" : "13%" }}>チーム総勤務時間</th>
+                  
+                  {/* 💡 【修正点3】「チーム総稼働時間」に変更 */}
+                  <th className="py-2.5 text-right" style={{ width: currentUserRole === "owner" ? "13%" : "13%" }}>チーム総稼働時間</th>
+                  
                   {currentUserRole === "owner" && <th className="py-2.5 text-right pr-6 text-emerald-600 font-extrabold" style={{ width: "14%" }}>チーム総報酬額（税抜）</th>}
                 </tr>
               </thead>
@@ -398,6 +417,10 @@ export default function TabSummary({
                 {filteredDeptKeys.map(dept => {
                   const data = departmentSummaries[dept];
                   if (!data) return null;
+
+                  // 💡 所属別の「●時間●分」表示算出
+                  const deptH = Math.floor(data.totalMinutes / 60);
+                  const deptM = data.totalMinutes % 60;
 
                   return (
                     <tr key={dept} className="hover:bg-gray-50/30 transition-colors">
@@ -426,7 +449,12 @@ export default function TabSummary({
                       <td className="text-center tabular-nums text-gray-700 py-2.5">{data.memberCount} 名</td>
                       <td className="text-center tabular-nums text-gray-500 py-2.5">{data.totalDays} 日分</td>
                       <td className="text-center tabular-nums text-purple-600 py-2.5">{data.totalSessions} 回</td>
-                      <td className="text-right tabular-nums text-gray-800 font-mono py-2.5">{Math.round(data.totalHours * 100) / 100} 時間</td>
+                      
+                      {/* 💡 【修正点4】「●時間●分」表記 */}
+                      <td className="text-right tabular-nums text-gray-800 font-mono py-2.5 whitespace-nowrap">
+                        {deptH}時間{deptM}分
+                      </td>
+                      
                       {currentUserRole === "owner" && (
                         <td className="text-right pr-6 tabular-nums text-emerald-600 font-mono text-sm font-black py-2.5">
                           ¥{data.totalReward.toLocaleString()}

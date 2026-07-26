@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { auth } from "@/lib/firebase";
 import { attendanceRepository } from "@/lib/attendanceRepository";
 
-// 🍏 【ボタン競合バグ解消版】ドラムロール選択UIコンポーネント
+// 🍏 ドラムロール選択UIコンポーネント（引き戻しバグ防止機構付き）
 function ScrollWheelPicker({
   options,
   value,
@@ -16,21 +16,15 @@ function ScrollWheelPicker({
   onChange: (val: string) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  
-  // 💡 【重要】ボタンなどプログラム側で数字を変更した直後かどうかの判定フラグ
   const isAutoScrolling = useRef(false);
 
-  // 初期表示時や、ボタン等で値が変わった時に選択値へスクロール
   useEffect(() => {
     if (containerRef.current) {
       const index = options.indexOf(value);
       if (index !== -1) {
-        isAutoScrolling.current = true; // プログラム操作開始をマーク
-        
-        // スムーズスクロールをさせず、即座に該当位置へジャンプさせる
+        isAutoScrolling.current = true;
         containerRef.current.scrollTo({ top: index * 40, behavior: 'auto' });
         
-        // 移動が完了するまでのわずかな時間、手動スクロールの読み取りをロックして引き戻しを防ぐ
         setTimeout(() => {
           isAutoScrolling.current = false;
         }, 50);
@@ -38,9 +32,7 @@ function ScrollWheelPicker({
     }
   }, [value, options]);
 
-  // ドラムを手でスクロールした時の処理
   const handleScroll = () => {
-    // 💡 プログラム操作で移動中の時は、システムの上書き（引き戻し）を防ぐため無視する
     if (isAutoScrolling.current) return;
 
     if (containerRef.current) {
@@ -52,17 +44,16 @@ function ScrollWheelPicker({
     }
   };
 
-  // 数字を直接クリックした際の処理
   const handleItemClick = (opt: string) => {
     onChange(opt);
   };
 
   return (
     <div className="relative h-[160px] w-20 overflow-hidden select-none bg-gray-50/50 rounded-2xl border border-gray-100">
-      {/* 中央の選択枠 */}
+      {/* 中央の緑色の選択枠 */}
       <div className="absolute top-[60px] left-1 right-1 h-[40px] bg-emerald-100/80 border-2 border-emerald-500 rounded-xl pointer-events-none z-0" />
 
-      {/* スクロールする数字一覧（💡 scroll-smoothを削除して競合を解消） */}
+      {/* スクロールする数字一覧 */}
       <div
         ref={containerRef}
         onScroll={handleScroll}
@@ -101,11 +92,13 @@ export default function DashboardPage() {
   const [currentStampId, setCurrentStampId] = useState<string | null>(null);
   const [currentStartTimeStr, setCurrentStartTimeStr] = useState<string>("");
 
+  // 業務開始の時間選択モーダル制御（デフォルト 09:00）
   const [showStartModal, setShowStartModal] = useState<boolean>(false);
   const [showStartConfirmModal, setShowStartConfirmModal] = useState<boolean>(false);
   const [startHourInput, setStartHourInput] = useState<string>("09");
   const [startMinuteInput, setStartMinuteInput] = useState<string>("00");
 
+  // 業務終了の時間・休憩選択モーダル制御
   const [showEndModal, setShowEndModal] = useState<boolean>(false);
   const [showEndConfirmModal, setShowEndConfirmModal] = useState<boolean>(false);
   const [endHourInput, setEndHourInput] = useState<string>("18");
@@ -209,6 +202,14 @@ export default function DashboardPage() {
     setShowStartModal(true);
   };
 
+  // 1時間微調整用関数
+  const adjustHour = (currentHourStr: string, delta: number, setHourFunc: (val: string) => void) => {
+    const current = parseInt(currentHourStr, 10);
+    let next = (current + delta + 24) % 24;
+    setHourFunc(String(next).padStart(2, '0'));
+  };
+
+  // 1分微調整用関数
   const adjustMinute = (currentMinStr: string, delta: number, setMinFunc: (val: string) => void) => {
     const current = parseInt(currentMinStr, 10);
     let next = (current + delta + 60) % 60;
@@ -348,61 +349,72 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-4 py-10 space-y-10">
+      <main className="max-w-4xl mx-auto px-4 py-10 space-y-8">
         
-        <div className="bg-white rounded-[40px] p-8 sm:p-12 shadow-sm border border-gray-100 text-center space-y-10">
+        {/* 🍏 Apple風にスリム化＆洗練されたメイン表示カード */}
+        <div className="bg-white rounded-[32px] p-8 sm:p-10 shadow-sm border border-gray-100 text-center space-y-8">
           
-          <div className="space-y-4">
-            <p className="text-base text-gray-400 font-semibold tracking-widest">
+          {/* 日時＆控えめな時計表示 */}
+          <div className="space-y-2">
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">
               {isMounted ? formatDate(currentTime) : "----年--月--日"}
             </p>
-            <h2 className="text-7xl font-bold text-gray-800 tabular-nums tracking-tighter">
-              {isMounted ? formatTime(currentTime) : "--:--:--"}
-            </h2>
-            <div className="h-1 w-12 bg-gray-200 mx-auto rounded-full my-4"></div>
-            <p className="text-xl font-bold text-gray-700">
+
+            {/* 💡 時計の文字サイズを小さく控えめに整えました */}
+            <div className="inline-flex items-center space-x-2 bg-gray-50/80 px-4 py-1.5 rounded-full border border-gray-100">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span className="text-xl font-extrabold text-gray-700 font-mono tracking-tight tabular-nums">
+                {isMounted ? formatTime(currentTime) : "--:--:--"}
+              </span>
+            </div>
+
+            <p className="text-2xl font-bold text-gray-800 pt-3">
               {userName ? `${userName} さん、今日もありがとうございます！` : "今日もありがとうございます！"}
             </p>
 
             {workState === "working" && (userRole === "owner" || userRole === "admin") && currentStartTimeStr && (
-              <p className="text-xs font-medium text-emerald-600 bg-emerald-50 py-1.5 px-4 rounded-full inline-block animate-fadeIn">
-                内部計測中（選択開始時刻: {currentStartTimeStr}）
-              </p>
+              <div className="pt-1">
+                <p className="text-xs font-semibold text-emerald-600 bg-emerald-50 py-1.5 px-4 rounded-full inline-block animate-fadeIn">
+                  内部計測中（選択開始時刻: {currentStartTimeStr}）
+                </p>
+              </div>
             )}
           </div>
 
           {statusMessage && (
-            <div className="max-w-md mx-auto bg-emerald-50 text-emerald-800 border border-emerald-100 px-6 py-4 rounded-2xl text-sm font-semibold animate-fadeIn">
+            <div className="max-w-md mx-auto bg-emerald-50 text-emerald-800 border border-emerald-100 px-6 py-3.5 rounded-2xl text-sm font-semibold animate-fadeIn">
               {statusMessage}
             </div>
           )}
 
-          <div className="flex flex-col sm:flex-row justify-center items-stretch space-y-4 sm:space-y-0 sm:space-x-4 max-w-lg mx-auto">
+          {/* 打刻ボタン */}
+          <div className="flex flex-col sm:flex-row justify-center items-stretch space-y-3 sm:space-y-0 sm:space-x-4 max-w-md mx-auto">
             <button 
               onClick={handleOpenStartModal} 
               disabled={workState === "working"} 
-              className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white font-semibold text-lg py-5 rounded-2xl shadow-sm transition-all disabled:opacity-20 disabled:scale-100 cursor-pointer"
+              className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-base py-4 rounded-2xl shadow-sm hover:shadow-md transition-all disabled:opacity-20 disabled:scale-100 cursor-pointer"
             >
               業務開始
             </button>
             <button 
               onClick={handleOpenEndModal} 
               disabled={workState !== "working"} 
-              className="flex-1 bg-gray-800 hover:bg-gray-900 text-white font-semibold text-lg py-5 rounded-2xl shadow-sm transition-all disabled:opacity-20 disabled:scale-100 cursor-pointer"
+              className="flex-1 bg-gray-800 hover:bg-gray-900 text-white font-bold text-base py-4 rounded-2xl shadow-sm hover:shadow-md transition-all disabled:opacity-20 disabled:scale-100 cursor-pointer"
             >
               業務終了
             </button>
           </div>
         </div>
 
+        {/* オーナー伝言板 */}
         <div className="relative max-w-2xl mx-auto group">
-          <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-6 h-6 bg-gray-100 rotate-45 rounded-sm"></div>
+          <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 w-5 h-5 bg-gray-100 rotate-45 rounded-sm"></div>
           
-          <div className="relative bg-gray-100 text-gray-700 p-8 rounded-[35px] text-center transform transition-transform group-hover:scale-[1.01]">
-            <div className="flex items-center justify-center space-x-2 mb-2">
+          <div className="relative bg-gray-100 text-gray-700 p-6 rounded-[28px] text-center transform transition-transform group-hover:scale-[1.005]">
+            <div className="flex items-center justify-center space-x-2 mb-1.5">
               <span className="text-[10px] font-bold uppercase tracking-[0.2em] opacity-60">Message from Owner</span>
             </div>
-            <p className="text-sm font-semibold leading-relaxed whitespace-pre-wrap">
+            <p className="text-sm font-medium leading-relaxed whitespace-pre-wrap">
               {customFooterMessage || "今日も一日、よろしくお願いいたします！"}
             </p>
           </div>
@@ -415,21 +427,43 @@ export default function DashboardPage() {
           <div className="bg-white rounded-[32px] p-8 max-w-sm w-full mx-4 shadow-xl text-center space-y-6">
             <div className="space-y-1">
               <h4 className="text-lg font-bold text-gray-800">開始時間</h4>
-              <p className="text-xs text-gray-400">スクロールまたはボタンで分を調整してください</p>
+              <p className="text-xs text-gray-400">スクロールまたはボタンで時間を調整してください</p>
             </div>
 
             <div className="space-y-4">
-              <div className="flex items-center justify-center space-x-3 bg-white p-2 rounded-3xl border border-gray-100 w-[240px] mx-auto shadow-inner">
-                {/* 時ドラム */}
-                <ScrollWheelPicker
-                  options={hoursOptions}
-                  value={startHourInput}
-                  onChange={setStartHourInput}
-                />
+              {/* 💡 左右対称デザイン：【▲▼ボタン + 時ドラム】: 【分ドラム + ▲▼ボタン】 */}
+              <div className="flex items-center justify-center space-x-2.5 bg-white p-2 rounded-3xl border border-gray-100 max-w-[280px] mx-auto shadow-inner">
+                
+                {/* 時：微調整ボタン ＋ 時ドラム */}
+                <div className="flex items-center space-x-1.5">
+                  <div className="flex flex-col space-y-1">
+                    <button
+                      type="button"
+                      onClick={() => adjustHour(startHourInput, 1, setStartHourInput)}
+                      className="w-7 h-7 bg-gray-100 hover:bg-emerald-500 text-gray-600 hover:text-white border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center shadow-sm active:scale-95 transition-all cursor-pointer"
+                      title="1時間進める"
+                    >
+                      ▲
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => adjustHour(startHourInput, -1, setStartHourInput)}
+                      className="w-7 h-7 bg-gray-100 hover:bg-emerald-500 text-gray-600 hover:text-white border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center shadow-sm active:scale-95 transition-all cursor-pointer"
+                      title="1時間戻す"
+                    >
+                      ▼
+                    </button>
+                  </div>
+                  <ScrollWheelPicker
+                    options={hoursOptions}
+                    value={startHourInput}
+                    onChange={setStartHourInput}
+                  />
+                </div>
                 
                 <span className="text-2xl font-black text-gray-800 pb-1">:</span>
 
-                {/* 分ドラム ＋ 上下微調整ボタン */}
+                {/* 分：分ドラム ＋ 微調整ボタン */}
                 <div className="flex items-center space-x-1.5">
                   <ScrollWheelPicker
                     options={minutesOptions}
@@ -512,18 +546,43 @@ export default function DashboardPage() {
           <div className="bg-white rounded-[32px] p-8 max-w-sm w-full mx-4 shadow-xl text-center space-y-6">
             <div className="space-y-1">
               <h4 className="text-lg font-bold text-gray-800">終了と休憩時間</h4>
-              <p className="text-xs text-gray-400">スクロールまたはボタンで分を調整してください</p>
+              <p className="text-xs text-gray-400">スクロールまたはボタンで時間を調整してください</p>
             </div>
 
             <div className="space-y-5">
               <div className="space-y-3">
-                <div className="flex items-center justify-center space-x-3 bg-white p-2 rounded-3xl border border-gray-100 w-[240px] mx-auto shadow-inner">
-                  <ScrollWheelPicker
-                    options={hoursOptions}
-                    value={endHourInput}
-                    onChange={setEndHourInput}
-                  />
+                {/* 💡 左右対称デザイン：【▲▼ボタン + 時ドラム】: 【分ドラム + ▲▼ボタン】 */}
+                <div className="flex items-center justify-center space-x-2.5 bg-white p-2 rounded-3xl border border-gray-100 max-w-[280px] mx-auto shadow-inner">
+                  {/* 時：微調整ボタン ＋ 時ドラム */}
+                  <div className="flex items-center space-x-1.5">
+                    <div className="flex flex-col space-y-1">
+                      <button
+                        type="button"
+                        onClick={() => adjustHour(endHourInput, 1, setEndHourInput)}
+                        className="w-7 h-7 bg-gray-100 hover:bg-emerald-500 text-gray-600 hover:text-white border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center shadow-sm active:scale-95 transition-all cursor-pointer"
+                        title="1時間進める"
+                      >
+                        ▲
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => adjustHour(endHourInput, -1, setEndHourInput)}
+                        className="w-7 h-7 bg-gray-100 hover:bg-emerald-500 text-gray-600 hover:text-white border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center shadow-sm active:scale-95 transition-all cursor-pointer"
+                        title="1時間戻す"
+                      >
+                        ▼
+                      </button>
+                    </div>
+                    <ScrollWheelPicker
+                      options={hoursOptions}
+                      value={endHourInput}
+                      onChange={setEndHourInput}
+                    />
+                  </div>
+
                   <span className="text-2xl font-black text-gray-800 pb-1">:</span>
+
+                  {/* 分：分ドラム ＋ 微調整ボタン */}
                   <div className="flex items-center space-x-1.5">
                     <ScrollWheelPicker
                       options={minutesOptions}
@@ -614,7 +673,7 @@ export default function DashboardPage() {
 
             <div className="flex flex-col space-y-2 pt-2">
               <button onClick={handleConfirmEndWork} className="w-full bg-gray-800 hover:bg-gray-900 text-white font-semibold py-3.5 rounded-xl text-sm transition-all cursor-pointer">確定して送信</button>
-              <button onClick={() => { setShowEndConfirmModal(false); setShowEndModal(true); }} className="w-full bg-white text-gray-600 font-semibold py-3.5 rounded-xl text-sm transition-all cursor-pointer">修正する</button>
+              <button onClick={() => { setShowEndConfirmModal(false); setShowStartModal(true); }} className="w-full bg-white text-gray-600 font-semibold py-3.5 rounded-xl text-sm transition-all cursor-pointer">修正する</button>
             </div>
           </div>
         </div>

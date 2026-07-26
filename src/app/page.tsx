@@ -311,7 +311,6 @@ export default function DashboardPage() {
   };
 
   return (
-    // 💡 Apple標準フォントスタックをCSSに適用
     <div 
       className="min-h-screen bg-gray-50 text-gray-800 antialiased"
       style={{
@@ -320,12 +319,7 @@ export default function DashboardPage() {
     >
       <header className="bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between shadow-sm">
         <div className="flex items-center space-x-3">
-          <img 
-            src="/icon_rmkintai.png" 
-            alt="ダコック ロゴ" 
-            onClick={() => router.push("/")} 
-            className="h-9 w-auto cursor-pointer transition-transform hover:scale-105" 
-          />
+          {/* 💡 ロゴ画像を削除し、権限バッジのみを配置 */}
           <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${userRole === "owner" ? "bg-gray-800 text-white" : "bg-emerald-50 text-emerald-600"}`}>
             {userRole === "owner" ? "オーナー権限ログイン中" : "ダコック 業務管理システム"}
           </span>
@@ -355,7 +349,6 @@ export default function DashboardPage() {
 
       <main className="max-w-4xl mx-auto px-4 py-10 space-y-8">
         
-        {/* 🍏 Apple風デザインカード */}
         <div className="bg-white rounded-[32px] p-8 sm:p-10 shadow-sm border border-gray-100 text-center space-y-8">
           
           <div className="space-y-2">
@@ -363,7 +356,6 @@ export default function DashboardPage() {
               {isMounted ? formatDate(currentTime) : "----年--月--日"}
             </p>
 
-            {/* 💡 時計：SF Pro数字スタイルのコンパクト表示 */}
             <div className="inline-flex items-center space-x-2 bg-gray-50/80 px-4 py-1.5 rounded-full border border-gray-100 shadow-inner">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
               <span className="text-xl font-black text-gray-800 font-mono tracking-tight tabular-nums">
@@ -408,7 +400,6 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* オーナー伝言板 */}
         <div className="relative max-w-2xl mx-auto group">
           <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 w-5 h-5 bg-gray-100 rotate-45 rounded-sm"></div>
           
@@ -434,7 +425,6 @@ export default function DashboardPage() {
 
             <div className="space-y-4">
               <div className="flex items-center justify-center space-x-2.5 bg-white p-2 rounded-3xl border border-gray-100 max-w-[280px] mx-auto shadow-inner">
-                {/* 時：微調整ボタン ＋ 時ドラム */}
                 <div className="flex items-center space-x-1.5">
                   <div className="flex flex-col space-y-1">
                     <button
@@ -463,7 +453,6 @@ export default function DashboardPage() {
                 
                 <span className="text-2xl font-black text-gray-800 pb-1 font-mono">:</span>
 
-                {/* 分：分ドラム ＋ 微調整ボタン */}
                 <div className="flex items-center space-x-1.5">
                   <ScrollWheelPicker
                     options={minutesOptions}
@@ -491,7 +480,6 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              {/* 分数ショートカットボタン */}
               <div className="flex justify-center space-x-2 pt-1">
                 {["00", "15", "30", "45"].map((min) => (
                   <button
@@ -518,14 +506,13 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* 🟢 2. 業務開始：確認モーダル（Apple Watch風の太く綺麗な数値フォント） */}
+      {/* 🟢 2. 業務開始：確認モーダル */}
       {showStartConfirmModal && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn">
           <div className="bg-white rounded-[32px] p-8 max-w-sm w-full mx-4 shadow-xl text-center space-y-6">
             <div className="space-y-2">
               <h4 className="text-lg font-bold text-gray-800 tracking-tight">開始時間の確認</h4>
               
-              {/* 💡 Apple製品風の美しく丸みのある大文字時刻表示 */}
               <p className="text-5xl font-black text-emerald-600 tracking-tight my-6 font-mono tabular-nums">
                 {startHourInput}:{startMinuteInput}
               </p>

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { auth } from "@/lib/firebase";
 import { attendanceRepository } from "@/lib/attendanceRepository";
 
-// 🍏 ドラムロール選択UIコンポーネント（引き戻しバグ防止機構付き）
+// 🍏 ドラムロール選択UIコンポーネント
 function ScrollWheelPicker({
   options,
   value,
@@ -50,10 +50,10 @@ function ScrollWheelPicker({
 
   return (
     <div className="relative h-[160px] w-20 overflow-hidden select-none bg-gray-50/50 rounded-2xl border border-gray-100">
-      {/* 中央の緑色の選択枠 */}
-      <div className="absolute top-[60px] left-1 right-1 h-[40px] bg-emerald-100/80 border-2 border-emerald-500 rounded-xl pointer-events-none z-0" />
+      {/* 中央のAppleグリーン選択枠 */}
+      <div className="absolute top-[60px] left-1 right-1 h-[40px] bg-[#34C759]/15 border-2 border-[#34C759] rounded-xl pointer-events-none z-0" />
 
-      {/* スクロールする数字一覧（Appleライクな数字フォント指定） */}
+      {/* スクロールする数字一覧 */}
       <div
         ref={containerRef}
         onScroll={handleScroll}
@@ -319,8 +319,7 @@ export default function DashboardPage() {
     >
       <header className="bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between shadow-sm">
         <div className="flex items-center space-x-3">
-          {/* 💡 ロゴ画像を削除し、権限バッジのみを配置 */}
-          <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${userRole === "owner" ? "bg-gray-800 text-white" : "bg-emerald-50 text-emerald-600"}`}>
+          <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${userRole === "owner" ? "bg-gray-800 text-white" : "bg-[#34C759]/10 text-[#34C759]"}`}>
             {userRole === "owner" ? "オーナー権限ログイン中" : "ダコック 業務管理システム"}
           </span>
         </div>
@@ -331,7 +330,7 @@ export default function DashboardPage() {
               管理者画面を開く
             </button>
           )}
-          <button onClick={() => router.push("/records")} className="text-xs font-semibold text-emerald-600 bg-emerald-50 hover:bg-emerald-100 px-4 py-2 rounded-xl transition-all">
+          <button onClick={() => router.push("/records")} className="text-xs font-semibold text-[#34C759] bg-[#34C759]/10 hover:bg-[#34C759]/20 px-4 py-2 rounded-xl transition-all">
             自分の記録
           </button>
           <button 
@@ -357,7 +356,7 @@ export default function DashboardPage() {
             </p>
 
             <div className="inline-flex items-center space-x-2 bg-gray-50/80 px-4 py-1.5 rounded-full border border-gray-100 shadow-inner">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span className="w-2 h-2 rounded-full bg-[#34C759] animate-pulse"></span>
               <span className="text-xl font-black text-gray-800 font-mono tracking-tight tabular-nums">
                 {isMounted ? formatTime(currentTime) : "--:--:--"}
               </span>
@@ -367,26 +366,28 @@ export default function DashboardPage() {
               {userName ? `${userName} さん、今日もありがとうございます！` : "今日もありがとうございます！"}
             </p>
 
-            {workState === "working" && (userRole === "owner" || userRole === "admin") && currentStartTimeStr && (
+            {/* 💡 【文言修正】「内部計測中」を削除し「選択開始時刻: 09:00」のみ表示 ＆ Appleグリーン適用 */}
+            {workState === "working" && currentStartTimeStr && (
               <div className="pt-1">
-                <p className="text-xs font-semibold text-emerald-600 bg-emerald-50 py-1.5 px-4 rounded-full inline-block animate-fadeIn">
-                  内部計測中（選択開始時刻: {currentStartTimeStr}）
+                <p className="text-xs font-bold text-[#34C759] bg-[#34C759]/10 border border-[#34C759]/20 py-1.5 px-4 rounded-full inline-block animate-fadeIn">
+                  選択開始時刻: {currentStartTimeStr}
                 </p>
               </div>
             )}
           </div>
 
           {statusMessage && (
-            <div className="max-w-md mx-auto bg-emerald-50 text-emerald-800 border border-emerald-100 px-6 py-3.5 rounded-2xl text-sm font-semibold animate-fadeIn">
+            <div className="max-w-md mx-auto bg-[#34C759]/10 text-[#28A745] border border-[#34C759]/20 px-6 py-3.5 rounded-2xl text-sm font-semibold animate-fadeIn">
               {statusMessage}
             </div>
           )}
 
           <div className="flex flex-col sm:flex-row justify-center items-stretch space-y-3 sm:space-y-0 sm:space-x-4 max-w-md mx-auto">
+            {/* 💡 業務開始ボタン：Appleシステムグリーン (#34C759) */}
             <button 
               onClick={handleOpenStartModal} 
               disabled={workState === "working"} 
-              className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-base py-4 rounded-2xl shadow-sm hover:shadow-md transition-all disabled:opacity-20 disabled:scale-100 cursor-pointer"
+              className="flex-1 bg-[#34C759] hover:bg-[#2FB350] text-white font-bold text-base py-4 rounded-2xl shadow-sm hover:shadow-md transition-all disabled:opacity-20 disabled:scale-100 cursor-pointer"
             >
               業務開始
             </button>
@@ -430,7 +431,7 @@ export default function DashboardPage() {
                     <button
                       type="button"
                       onClick={() => adjustHour(startHourInput, 1, setStartHourInput)}
-                      className="w-7 h-7 bg-gray-100 hover:bg-emerald-500 text-gray-600 hover:text-white border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center shadow-sm active:scale-95 transition-all cursor-pointer"
+                      className="w-7 h-7 bg-gray-100 hover:bg-[#34C759] text-gray-600 hover:text-white border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center shadow-sm active:scale-95 transition-all cursor-pointer"
                       title="1時間進める"
                     >
                       ▲
@@ -438,7 +439,7 @@ export default function DashboardPage() {
                     <button
                       type="button"
                       onClick={() => adjustHour(startHourInput, -1, setStartHourInput)}
-                      className="w-7 h-7 bg-gray-100 hover:bg-emerald-500 text-gray-600 hover:text-white border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center shadow-sm active:scale-95 transition-all cursor-pointer"
+                      className="w-7 h-7 bg-gray-100 hover:bg-[#34C759] text-gray-600 hover:text-white border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center shadow-sm active:scale-95 transition-all cursor-pointer"
                       title="1時間戻す"
                     >
                       ▼
@@ -463,7 +464,7 @@ export default function DashboardPage() {
                     <button
                       type="button"
                       onClick={() => adjustMinute(startMinuteInput, 1, setStartMinuteInput)}
-                      className="w-7 h-7 bg-gray-100 hover:bg-emerald-500 text-gray-600 hover:text-white border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center shadow-sm active:scale-95 transition-all cursor-pointer"
+                      className="w-7 h-7 bg-gray-100 hover:bg-[#34C759] text-gray-600 hover:text-white border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center shadow-sm active:scale-95 transition-all cursor-pointer"
                       title="1分進める"
                     >
                       ▲
@@ -471,7 +472,7 @@ export default function DashboardPage() {
                     <button
                       type="button"
                       onClick={() => adjustMinute(startMinuteInput, -1, setStartMinuteInput)}
-                      className="w-7 h-7 bg-gray-100 hover:bg-emerald-500 text-gray-600 hover:text-white border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center shadow-sm active:scale-95 transition-all cursor-pointer"
+                      className="w-7 h-7 bg-gray-100 hover:bg-[#34C759] text-gray-600 hover:text-white border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center shadow-sm active:scale-95 transition-all cursor-pointer"
                       title="1分戻す"
                     >
                       ▼
@@ -488,7 +489,7 @@ export default function DashboardPage() {
                     onClick={() => setStartMinuteInput(min)}
                     className={`px-3 py-1 rounded-xl text-xs font-extrabold transition-all cursor-pointer font-mono ${
                       startMinuteInput === min
-                        ? "bg-emerald-500 text-white shadow-sm"
+                        ? "bg-[#34C759] text-white shadow-sm"
                         : "bg-gray-100 text-gray-600 hover:bg-gray-200"
                     }`}
                   >
@@ -500,7 +501,7 @@ export default function DashboardPage() {
 
             <div className="flex space-x-3 pt-2">
               <button onClick={() => setShowStartModal(false)} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-600 font-semibold py-3.5 rounded-xl text-sm transition-all cursor-pointer">キャンセル</button>
-              <button onClick={handleProceedToStartConfirm} className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white font-semibold py-3.5 rounded-xl text-sm transition-all cursor-pointer">次へ</button>
+              <button onClick={handleProceedToStartConfirm} className="flex-1 bg-[#34C759] hover:bg-[#2FB350] text-white font-semibold py-3.5 rounded-xl text-sm transition-all cursor-pointer">次へ</button>
             </div>
           </div>
         </div>
@@ -513,7 +514,7 @@ export default function DashboardPage() {
             <div className="space-y-2">
               <h4 className="text-lg font-bold text-gray-800 tracking-tight">開始時間の確認</h4>
               
-              <p className="text-5xl font-black text-emerald-600 tracking-tight my-6 font-mono tabular-nums">
+              <p className="text-5xl font-black text-[#34C759] tracking-tight my-6 font-mono tabular-nums">
                 {startHourInput}:{startMinuteInput}
               </p>
               
@@ -523,8 +524,8 @@ export default function DashboardPage() {
             </div>
 
             <div className="flex flex-col space-y-2 pt-2">
-              <button onClick={handleConfirmStartWork} className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3.5 rounded-xl text-sm transition-all cursor-pointer shadow-sm">確定して送信</button>
-              <button onClick={() => { setShowStartConfirmModal(false); setShowStartModal(true); }} className="w-full bg-white text-emerald-600 font-bold py-3.5 rounded-xl text-sm transition-all cursor-pointer">修正する</button>
+              <button onClick={handleConfirmStartWork} className="w-full bg-[#34C759] hover:bg-[#2FB350] text-white font-bold py-3.5 rounded-xl text-sm transition-all cursor-pointer shadow-sm">確定して送信</button>
+              <button onClick={() => { setShowStartConfirmModal(false); setShowStartModal(true); }} className="w-full bg-white text-[#34C759] font-bold py-3.5 rounded-xl text-sm transition-all cursor-pointer">修正する</button>
             </div>
           </div>
         </div>
@@ -547,7 +548,7 @@ export default function DashboardPage() {
                       <button
                         type="button"
                         onClick={() => adjustHour(endHourInput, 1, setEndHourInput)}
-                        className="w-7 h-7 bg-gray-100 hover:bg-emerald-500 text-gray-600 hover:text-white border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center shadow-sm active:scale-95 transition-all cursor-pointer"
+                        className="w-7 h-7 bg-gray-100 hover:bg-[#34C759] text-gray-600 hover:text-white border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center shadow-sm active:scale-95 transition-all cursor-pointer"
                         title="1時間進める"
                       >
                         ▲
@@ -555,7 +556,7 @@ export default function DashboardPage() {
                       <button
                         type="button"
                         onClick={() => adjustHour(endHourInput, -1, setEndHourInput)}
-                        className="w-7 h-7 bg-gray-100 hover:bg-emerald-500 text-gray-600 hover:text-white border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center shadow-sm active:scale-95 transition-all cursor-pointer"
+                        className="w-7 h-7 bg-gray-100 hover:bg-[#34C759] text-gray-600 hover:text-white border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center shadow-sm active:scale-95 transition-all cursor-pointer"
                         title="1時間戻す"
                       >
                         ▼
@@ -580,7 +581,7 @@ export default function DashboardPage() {
                       <button
                         type="button"
                         onClick={() => adjustMinute(endMinuteInput, 1, setEndMinuteInput)}
-                        className="w-7 h-7 bg-gray-100 hover:bg-emerald-500 text-gray-600 hover:text-white border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center shadow-sm active:scale-95 transition-all cursor-pointer"
+                        className="w-7 h-7 bg-gray-100 hover:bg-[#34C759] text-gray-600 hover:text-white border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center shadow-sm active:scale-95 transition-all cursor-pointer"
                         title="1分進める"
                       >
                         ▲
@@ -588,7 +589,7 @@ export default function DashboardPage() {
                       <button
                         type="button"
                         onClick={() => adjustMinute(endMinuteInput, -1, setEndMinuteInput)}
-                        className="w-7 h-7 bg-gray-100 hover:bg-emerald-500 text-gray-600 hover:text-white border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center shadow-sm active:scale-95 transition-all cursor-pointer"
+                        className="w-7 h-7 bg-gray-100 hover:bg-[#34C759] text-gray-600 hover:text-white border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center shadow-sm active:scale-95 transition-all cursor-pointer"
                         title="1分戻す"
                       >
                         ▼

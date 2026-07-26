@@ -35,7 +35,7 @@ export default function RecordsPage() {
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
 
-  // 💡 【修正のコア】当月を起点に過去12ヶ月分の選択肢（YYYY-MM）を自動生成する
+  // 💡 当月を起点に過去12ヶ月分の選択肢（YYYY-MM）を自動生成する
   const monthOptions = useMemo(() => {
     const options: { value: string; label: string }[] = [];
     const now = new Date();
@@ -181,6 +181,10 @@ export default function RecordsPage() {
   const totalWorkDays = uniqueDates.size;
   const totalWorkMinutes = filteredRecords.reduce((sum, rec) => sum + (rec.workMinutes || 0), 0);
 
+  // 💡 【修正点】合計時間を「●時間●分」として表示するための計算
+  const displayTotalH = Math.floor(totalWorkMinutes / 60);
+  const displayTotalM = totalWorkMinutes % 60;
+
   const totalCount = filteredRecords.length;
   const verifiedCount = filteredRecords.filter(rec => rec.verified).length;
   const isAllVerified = totalCount > 0 && verifiedCount === totalCount;
@@ -216,7 +220,6 @@ export default function RecordsPage() {
               onChange={(e) => setSelectedMonth(e.target.value)}
               className="text-sm font-semibold bg-transparent text-gray-700 focus:outline-none cursor-pointer"
             >
-              {/* 💡 動的生成した過去12ヶ月分の選択肢をマップ表示 */}
               {monthOptions.map((opt) => (
                 <option key={opt.value} value={opt.value}>
                   {opt.label}
@@ -235,8 +238,9 @@ export default function RecordsPage() {
           </div>
           <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 text-center space-y-0.5">
             <p className="text-[11px] font-bold text-gray-400 tracking-wider">当月の総稼働時間</p>
+            {/* 💡 【修正点】「●時間●分」の形式で表示 */}
             <p className="text-2xl font-black text-emerald-500 tabular-nums">
-              {totalWorkMinutes} <span className="text-xs font-medium text-gray-400">分</span>
+              {displayTotalH} <span className="text-sm font-medium text-emerald-600/80">時間</span> {displayTotalM} <span className="text-sm font-medium text-emerald-600/80">分</span>
             </p>
           </div>
         </div>
@@ -255,7 +259,8 @@ export default function RecordsPage() {
                     <th className="py-2 font-medium">業務開始</th>
                     <th className="py-2 font-medium">業務終了</th>
                     <th className="py-2 font-medium">休憩時間</th>
-                    <th className="py-2 font-medium">実働時間 (分)</th>
+                    {/* 💡 ヘッダーを「実働時間」に変更 */}
+                    <th className="py-2 font-medium">実働時間</th>
                     <th className="py-2 font-medium text-center w-20">削除</th>
                     <th className="py-2 text-center w-36 pr-3 font-bold text-gray-500">確認状況</th>
                   </tr>
@@ -269,7 +274,15 @@ export default function RecordsPage() {
                         <span className={record.endTime === "---" ? "text-gray-300 font-normal" : ""}>{record.endTime}</span>
                       </td>
                       <td className="py-2 tabular-nums text-gray-400">{record.endTime === "---" ? "---" : `${record.breakMinutes} 分`}</td>
-                      <td className="py-2 tabular-nums font-semibold text-gray-700">{record.endTime === "---" ? "---" : `${record.workMinutes} 分`}</td>
+                      
+                      {/* 💡 【修正点】各日の表示を「●時間●分」の形式で表示 */}
+                      <td className="py-2 tabular-nums font-semibold text-gray-700">
+                        {record.endTime === "---" ? (
+                          "---"
+                        ) : (
+                          `${Math.floor(record.workMinutes / 60)}時間${record.workMinutes % 60}分`
+                        )}
+                      </td>
                       
                       <td className="py-2 text-center">
                         {record.verified || record.submitted ? (

@@ -2,22 +2,24 @@
 
 import { useState } from "react";
 import { MemberInfo } from "@/lib/attendanceRepository";
-// 💡 【新設】リポジトリファイルを汚さず、このファイルだけで「leaderVerified」を安全に直接更新するためのインポート
 import { doc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
+// 💡 実際の打刻時間を一覧で受け取れるように型を拡張
 interface AdminAttendanceRecord {
   id: string;
   userName: string;
   email: string;
   workDate: string;
   startTime: string;
+  actualStartTime?: string; // 👑 新設: 実際の開始打刻操作時刻
   endTime: string;
+  actualEndTime?: string; // 👑 新設: 実際の終了打刻操作時刻
   breakMinutes: number;
   workHours: number;
   submitted: boolean;
-  verified?: boolean; // 👑 メンバー自身が確認したフラグ（閲覧専用仕様を保持）
-  leaderVerified?: boolean; // 💡 【新設】リーダーが確認した独立フラグ
+  verified?: boolean;
+  leaderVerified?: boolean;
 }
 
 interface TabRecordsProps {
@@ -42,7 +44,6 @@ export default function TabRecords({
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [createEmail, setCreateEmail] = useState("");
   
-  // 💡 【仕様保持】勤務日の初期値を最初から「当日（今日）」の自動入力状態に設定
   const [createDate, setCreateDate] = useState(() => {
     const now = new Date();
     return now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, '0') + "-" + String(now.getDate()).padStart(2, '0');
@@ -51,7 +52,6 @@ export default function TabRecords({
   const [createEnd, setCreateEnd] = useState("18:00");
   const [createBreak, setCreateBreak] = useState<number>(60);
 
-  // 👑 代理削除用リッチ確認モーダルのステート（仕様保持）
   const [deleteModal, setDeleteModal] = useState<{ isOpen: boolean; recordId: string; name: string; date: string }>({
     isOpen: false,
     recordId: "",
@@ -59,13 +59,11 @@ export default function TabRecords({
     date: ""
   });
 
-  // 💡 【新設】新項目「リーダー確認」のボタンをポチッと押したときに、別フィールドを綺麗に反転トグルさせる関数
   const handleToggleLeaderVerify = async (id: string, currentStatus: boolean) => {
     try {
       const nextStatus = !currentStatus;
       setStatusMessage(nextStatus ? "リーダー確認を確定中..." : "確認を解除中...");
       
-      // 💡 データベース上の「leaderVerified」フィールドだけをピンポイントで安全に更新！
       const recordRef = doc(db, "attendance_records", id);
       await updateDoc(recordRef, {
         leaderVerified: nextStatus,
@@ -74,7 +72,7 @@ export default function TabRecords({
       
       setStatusMessage(nextStatus ? "リーダー確認を完了しました。" : "リーダー確認を解除しました。");
       setTimeout(() => setStatusMessage(null), 3000);
-      await loadAllData(); // 画面を一括再ロード
+      await loadAllData();
     } catch (error) {
       setStatusMessage("⚠️ エラー：リーダー確認の更新に失敗しました。");
       setTimeout(() => setStatusMessage(null), 4000);
@@ -143,15 +141,13 @@ export default function TabRecords({
     }
   };
 
-  // 💡 【新設】現在表示されているリストの中に、リーダー確認が「未確認」のものが1件でもあるか自動判定
   const hasUnverifiedRecords = displayedRecords.some(record => !record.leaderVerified);
 
   return (
     <div className="space-y-3 animate-fadeIn">
       
-      {/* 💡 【新設】リーダー確認が未承認のデータが残っている場合だけ最上部に出現するポップな警告メッセージ */}
       {hasUnverifiedRecords && (
-        <div className="bg-amber-50 text-amber-900 border-2 border-amber-200 p-4 rounded-2xl text-xs font-bold animate-fadeIn flex items-center space-x-2 shadow-sm shadow-amber-50下">
+        <div className="bg-amber-50 text-amber-900 border-2 border-amber-200 p-4 rounded-2xl text-xs font-bold animate-fadeIn flex items-center space-x-2 shadow-sm shadow-amber-50">
           <span className="text-base">⏳</span>
           <p>
             担当チーム内に <span className="text-amber-700 underline font-black">リーダー未確認の稼働記録</span> が残っています。内容に問題がなければ「確認する」ボタンを押して確定させてください。
@@ -183,7 +179,6 @@ export default function TabRecords({
                 <th className="py-2">業務終了</th>
                 <th className="py-2">休憩</th>
                 <th className="py-2">実働時間</th>
-                {/* 💡 要件通り、本人確認状況をそのまま残し、リーダー確認を新設！ */}
                 <th className="py-2 text-center w-28">本人確認状況</th>
                 <th className="py-2 text-center w-36">リーダー確認</th>
                 <th className="py-2 text-right pr-5 w-16">削除</th>
@@ -214,14 +209,40 @@ export default function TabRecords({
                       {meta.name} <span className="text-[10px] text-gray-400 font-normal block">{record.email}</span>
                     </td>
                     <td className="py-2 font-medium">{record.workDate}</td>
-                    <td className="py-2 tabular-nums font-medium text-emerald-600">{record.startTime}</td>
-                    <td className="py-2 tabular-nums">
-                      {record.endTime === "" ? <span className="text-amber-500 font-bold animate-pulse">稼働中...</span> : record.endTime}
+                    
+                    {/* 💡 【実時間表示】業務開始列（選択時間と実打刻時間を並べて表示） */}
+                    <td className="py-2">
+                      <div className="flex flex-col">
+                        <span className="tabular-nums font-medium text-emerald-600">{record.startTime}</span>
+                        {record.actualStartTime && record.actualStartTime !== record.startTime && (
+                          <span className="text-[9px] text-gray-400 whitespace-nowrap">
+                            実打刻: {record.actualStartTime}
+                          </span>
+                        )}
+                      </div>
                     </td>
+
+                    {/* 💡 【実時間表示】業務終了列（選択時間と実打刻時間を並べて表示） */}
+                    <td className="py-2">
+                      <div className="flex flex-col">
+                        {record.endTime === "" ? (
+                          <span className="text-amber-500 font-bold animate-pulse">稼働中...</span>
+                        ) : (
+                          <>
+                            <span className="tabular-nums text-gray-800">{record.endTime}</span>
+                            {record.actualEndTime && record.actualEndTime !== record.endTime && (
+                              <span className="text-[9px] text-gray-400 whitespace-nowrap">
+                                実打刻: {record.actualEndTime}
+                              </span>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </td>
+
                     <td className="py-2 tabular-nums text-gray-400">{record.breakMinutes} 分</td>
                     <td className="py-2 tabular-nums font-bold text-gray-700">{record.workHours} 時間</td>
                     
-                    {/* 👑 本人確認状況（これまで通り、ワーカー自身が確定したかを見るだけの閲覧バッジ） */}
                     <td className="py-2 text-center">
                       {isVerified ? (
                         <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-0.5 rounded-xl font-extrabold shadow-sm inline-block select-none">
@@ -234,7 +255,6 @@ export default function TabRecords({
                       )}
                     </td>
 
-                    {/* 💡 【新設】リーダー確認項目（リーダーがポチポチ上書き・解除ができるインタラクティブなトグルボタン） */}
                     <td className="py-2 text-center">
                       {isLeaderVerified ? (
                         <button
@@ -257,7 +277,6 @@ export default function TabRecords({
                       )}
                     </td>
                     
-                    {/* 削除ボタン */}
                     <td className="py-2 text-right pr-4">
                       <button 
                         onClick={() => setDeleteModal({ isOpen: true, recordId: record.id, name: meta.name, date: record.workDate })} 
@@ -278,12 +297,11 @@ export default function TabRecords({
         )}
       </div>
 
-      {/* 新規追加モーダル */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 text-xs font-sans">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 text-xs font-sans">
           <div className="bg-white rounded-2xl p-6 max-w-sm w-full mx-4 shadow-xl border border-gray-100 text-left space-y-4 animate-fadeIn">
             <div>
-              <h4 className="text-sm font-bold text-gray-800">稼慢記録の代理手動追加</h4>
+              <h4 className="text-sm font-bold text-gray-800">稼働記録の代理手動追加</h4>
               <p className="text-[10px] text-gray-400 mt-0.5">指定したメンバーの稼働データを裏側から強制作成します</p>
             </div>
 
@@ -342,7 +360,6 @@ export default function TabRecords({
         </div>
       )}
 
-      {/* 👑 代理削除用リッチ確認モーダル（仕様保持） */}
       {deleteModal.isOpen && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[999] animate-fadeIn font-sans">
           <div className="bg-white rounded-3xl p-6 max-w-sm w-full mx-4 shadow-2xl border border-gray-100 text-center space-y-4 animate-scaleUp">

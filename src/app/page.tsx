@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { auth } from "@/lib/firebase";
 import { attendanceRepository } from "@/lib/attendanceRepository";
 
-// 🍏 ドラムロール選択UIコンポーネント
+// 🍏 ドラムロール選択UIコンポーネント（引き戻しバグ防止機構付き）
 function ScrollWheelPicker({
   options,
   value,
@@ -366,7 +366,7 @@ export default function DashboardPage() {
               {userName ? `${userName} さん、今日もありがとうございます！` : "今日もありがとうございます！"}
             </p>
 
-            {/* 💡 【文言修正】「内部計測中」を削除し「選択開始時刻: 09:00」のみ表示 ＆ Appleグリーン適用 */}
+            {/* 💡 「内部計測中」を削除し、「選択開始時刻: 09:00」のみをスッキリ表示 */}
             {workState === "working" && currentStartTimeStr && (
               <div className="pt-1">
                 <p className="text-xs font-bold text-[#34C759] bg-[#34C759]/10 border border-[#34C759]/20 py-1.5 px-4 rounded-full inline-block animate-fadeIn">
@@ -383,7 +383,6 @@ export default function DashboardPage() {
           )}
 
           <div className="flex flex-col sm:flex-row justify-center items-stretch space-y-3 sm:space-y-0 sm:space-x-4 max-w-md mx-auto">
-            {/* 💡 業務開始ボタン：Appleシステムグリーン (#34C759) */}
             <button 
               onClick={handleOpenStartModal} 
               disabled={workState === "working"} 
@@ -531,13 +530,13 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* ⬛ 3. 業務終了モーダル */}
+      {/* ⬛ 3. 業務終了モーダル（休憩時間のプルダウンを廃止し、直感的なタップUIへ統一） */}
       {showEndModal && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn">
           <div className="bg-white rounded-[32px] p-8 max-w-sm w-full mx-4 shadow-xl text-center space-y-6">
             <div className="space-y-1">
               <h4 className="text-lg font-bold text-gray-800 tracking-tight">終了と休憩時間</h4>
-              <p className="text-xs text-gray-400">スクロールまたはボタンで時間を調整してください</p>
+              <p className="text-xs text-gray-400">終了時間と休憩時間を選択してください</p>
             </div>
 
             <div className="space-y-5">
@@ -598,6 +597,7 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
+                {/* 分数ショートカットボタン */}
                 <div className="flex justify-center space-x-2">
                   {["00", "15", "30", "45"].map((min) => (
                     <button
@@ -616,21 +616,37 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              <div className="bg-gray-50/80 p-3 rounded-2xl border border-gray-100 flex items-center justify-between px-4">
-                <span className="text-xs text-gray-500 font-semibold">休憩時間</span>
-                <select 
-                  value={breakMinutesInput}
-                  onChange={(e) => setBreakMinutesInput(Number(e.target.value))}
-                  className="text-sm font-bold bg-transparent focus:outline-none cursor-pointer text-gray-800 text-right"
-                >
-                  <option value={0}>なし（0分）</option>
-                  <option value={15}>15分</option>
-                  <option value={30}>30分</option>
-                  <option value={45}>45分</option>
-                  <option value={60}>60分</option>
-                  <option value={90}>90分</option>
-                  <option value={120}>120分</option>
-                </select>
+              {/* 💡 【大改善】プルダウン（select）を廃止し、全体に合わせたワンタップボタンへ変更 */}
+              <div className="space-y-1.5 text-left bg-gray-50/80 p-3.5 rounded-2xl border border-gray-100">
+                <div className="flex justify-between items-center mb-1 px-0.5">
+                  <span className="text-xs font-bold text-gray-500">休憩時間</span>
+                  <span className="text-xs font-black text-gray-800 font-mono">
+                    {breakMinutesInput === 0 ? "なし（0分）" : `${breakMinutesInput}分`}
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { label: "なし", value: 0 },
+                    { label: "15分", value: 15 },
+                    { label: "30分", value: 30 },
+                    { label: "45分", value: 45 },
+                    { label: "60分", value: 60 },
+                    { label: "90分", value: 90 },
+                  ].map((item) => (
+                    <button
+                      key={item.value}
+                      type="button"
+                      onClick={() => setBreakMinutesInput(item.value)}
+                      className={`py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                        breakMinutesInput === item.value
+                          ? "bg-gray-800 text-white shadow-sm scale-[1.02]"
+                          : "bg-white text-gray-600 hover:bg-gray-100 border border-gray-200/60"
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
@@ -651,7 +667,7 @@ export default function DashboardPage() {
               
               <div className="py-6 space-y-2">
                 <p className="text-sm text-gray-500 font-medium">終了時間 <span className="text-4xl font-black text-gray-900 ml-2 font-mono tracking-tight tabular-nums">{endHourInput}:{endMinuteInput}</span></p>
-                <p className="text-sm text-gray-500 font-medium pt-1">休憩時間 <span className="text-xl font-bold text-gray-800 ml-2 font-mono tabular-nums">{breakMinutesInput}分</span></p>
+                <p className="text-sm text-gray-500 font-medium pt-1">休憩時間 <span className="text-xl font-bold text-gray-800 ml-2 font-mono tabular-nums">{breakMinutesInput === 0 ? "なし" : `${breakMinutesInput}分`}</span></p>
               </div>
               
               <p className="text-xs text-gray-500 font-medium">

@@ -9,17 +9,19 @@ import TabRecords from "./_components/TabRecords";
 import TabCsv from "./_components/TabCsv"; 
 import TabMembers from "./_components/TabMembers";
 import TabOrgChart from "./_components/TabOrgChart"; 
-// 分割インポート仕様を100%保持
 import TabSettings from "./_components/TabSettings";
 import EditModal from "./_components/EditModal";
 
+// 💡 実打刻時間（actualStartTime / actualEndTime）を受け取れるよう型定義を拡張
 interface AdminAttendanceRecord {
   id: string;
   userName: string;
   email: string;
   workDate: string;
   startTime: string;
+  actualStartTime?: string; // 👑 新設: 実際の開始打刻操作時刻
   endTime: string;
+  actualEndTime?: string; // 👑 新設: 実際の終了打刻操作時刻
   breakMinutes: number;
   workHours: number;
   submitted: boolean;
@@ -50,11 +52,9 @@ export default function AdminPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [adminEmail, setAdminEmail] = useState<string>("");
   
-  // ログイン中の管理者自身のデータ
   const [userRole, setUserRole] = useState<"admin" | "owner">("admin");
   const [myDepartment, setMyDepartment] = useState<string>("");
   
-  // activeTabの選択肢の仕様を100%保持
   const [activeTab, setActiveTab] = useState<"summary" | "records" | "members" | "csv" | "org" | "settings">("records");
 
   const [attendanceRecords, setAttendanceRecords] = useState<AdminAttendanceRecord[]>([]);
@@ -63,7 +63,6 @@ export default function AdminPage() {
   const [accountRequests, setAccountRequests] = useState<AccountRequest[]>([]);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
-  // 💡 【修正箇所1】固定文字列("2026-06")を廃止し、画面を開いた日の「当月(YYYY-MM)」を自動取得してセット
   const [selectedMonth, setSelectedMonth] = useState<string>(() => {
     const now = new Date();
     const year = now.getFullYear();
@@ -90,10 +89,8 @@ export default function AdminPage() {
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
 
-  // 一般管理者(admin)に表示を許可するタブリスト（マスタから動的復元する仕様を保持）
   const [adminAllowedTabs, setAdminAllowedTabs] = useState<string[]>(["summary", "records", "org"]);
 
-  // 💡 【新設】当月を中心に過去6ヶ月〜未来1ヶ月の選択肢を自動計算するヘルパー関数
   const generateMonthOptions = () => {
     const options: { value: string; label: string }[] = [];
     const now = new Date();
@@ -104,7 +101,7 @@ export default function AdminPage() {
       const m = String(d.getMonth() + 1).padStart(2, '0');
       options.push({ value: `${y}-${m}`, label: `${y}年${m}月` });
     }
-    return options.reverse(); // 新しい月が上に来るように並び替え
+    return options.reverse();
   };
 
   const loadAllData = async () => {
@@ -127,7 +124,6 @@ export default function AdminPage() {
     }
   };
 
-  // 👑 最新の「パソコンのメモ帳（合言葉）」を読み込むログイン死守仕様（完全保持）
   useEffect(() => {
     const checkAdminAuth = async () => {
       const sessionStr = localStorage.getItem("session");
@@ -138,13 +134,11 @@ export default function AdminPage() {
           const email = session.email || "";
           setAdminEmail(email);
 
-          // 👑 西尾さんは最上位のowner仕様（完全保持）
           if (email === "nishio@aidma-hd.jp") {
             setUserRole("owner");
             setActiveTab("summary");
           } else {
             const meta = await attendanceRepository.getMemberByEmail(email);
-            // 👑 owner代理フラグ仕様（完全保持）
             if (meta && meta.isOwnerProxy) {
               setUserRole("owner");
               setActiveTab("summary");
@@ -175,7 +169,6 @@ export default function AdminPage() {
     checkAdminAuth();
   }, [router]);
 
-  // 💡 【大改造】CSVへIDを出力させるため、membersマスタに格納されている本来の「id」も一緒に回収するよう拡張！
   const getMemberMeta = (email: string) => {
     const matched = members.find(m => m.email === email || m.loginEmail === email);
     return {
@@ -212,7 +205,6 @@ export default function AdminPage() {
     }
   };
 
-  // 💡 【大改造】Excel報酬計算書CSVのエクスポート処理。空欄だったD列（4番目）に一撃紐付け！
   const handleExportRewardCSV = () => {
     if (userRole !== "owner") return;
 
@@ -417,7 +409,6 @@ export default function AdminPage() {
       <header className="bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between shadow-sm">
         <div className="flex items-center space-x-6">
           <div className="flex items-center space-x-3">
-            {/* 👑 管理者画面のテキストロゴもアイコン画像に差し替え */}
             <img 
               src="/icon_rmkintai.png" 
               alt="ダコック ロゴ" 
@@ -476,7 +467,6 @@ export default function AdminPage() {
             <div className="flex items-center flex-wrap gap-y-2 gap-x-4">
               <div className="flex items-center space-x-1.5">
                 <span className="font-bold text-gray-400 text-xs">対象月:</span>
-                {/* 💡 【修正箇所2】固定文字列のoptionを廃止し、動的生成された月リストをループで展開 */}
                 <select value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} className="bg-gray-50 border border-gray-200 px-2.5 py-1 rounded-lg font-bold text-gray-700 focus:outline-none cursor-pointer text-xs h-8 shadow-sm">
                   {generateMonthOptions().map((opt) => (
                     <option key={opt.value} value={opt.value}>

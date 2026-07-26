@@ -210,11 +210,11 @@ export default function TabRecords({
                     </td>
                     <td className="py-2 font-medium">{record.workDate}</td>
                     
-                    {/* 💡 【実時間表示】業務開始列（選択時間と実打刻時間を並べて表示） */}
+                    {/* 💡 【実時間表示】業務開始列（データが存在すれば常に「実打刻: HH:MM」を表示） */}
                     <td className="py-2">
                       <div className="flex flex-col">
                         <span className="tabular-nums font-medium text-emerald-600">{record.startTime}</span>
-                        {record.actualStartTime && record.actualStartTime !== record.startTime && (
+                        {record.actualStartTime && (
                           <span className="text-[9px] text-gray-400 whitespace-nowrap">
                             実打刻: {record.actualStartTime}
                           </span>
@@ -222,7 +222,7 @@ export default function TabRecords({
                       </div>
                     </td>
 
-                    {/* 💡 【実時間表示】業務終了列（選択時間と実打刻時間を並べて表示） */}
+                    {/* 💡 【実時間表示】業務終了列（データが存在すれば常に「実打刻: HH:MM」を表示） */}
                     <td className="py-2">
                       <div className="flex flex-col">
                         {record.endTime === "" ? (
@@ -230,7 +230,7 @@ export default function TabRecords({
                         ) : (
                           <>
                             <span className="tabular-nums text-gray-800">{record.endTime}</span>
-                            {record.actualEndTime && record.actualEndTime !== record.endTime && (
+                            {record.actualEndTime && (
                               <span className="text-[9px] text-gray-400 whitespace-nowrap">
                                 実打刻: {record.actualEndTime}
                               </span>

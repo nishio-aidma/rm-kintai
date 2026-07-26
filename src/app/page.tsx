@@ -366,7 +366,7 @@ export default function DashboardPage() {
               {userName ? `${userName} さん、今日もありがとうございます！` : "今日もありがとうございます！"}
             </p>
 
-            {/* 💡 「内部計測中」を削除し、「選択開始時刻: 09:00」のみをスッキリ表示 */}
+            {/* 💡 「内部計測中」を表示せず、「選択開始時刻: 09:00」のみを表示 */}
             {workState === "working" && currentStartTimeStr && (
               <div className="pt-1">
                 <p className="text-xs font-bold text-[#34C759] bg-[#34C759]/10 border border-[#34C759]/20 py-1.5 px-4 rounded-full inline-block animate-fadeIn">
@@ -530,7 +530,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* ⬛ 3. 業務終了モーダル（休憩時間のプルダウンを廃止し、直感的なタップUIへ統一） */}
+      {/* ⬛ 3. 業務終了モーダル */}
       {showEndModal && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn">
           <div className="bg-white rounded-[32px] p-8 max-w-sm w-full mx-4 shadow-xl text-center space-y-6">
@@ -597,7 +597,6 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
-                {/* 分数ショートカットボタン */}
                 <div className="flex justify-center space-x-2">
                   {["00", "15", "30", "45"].map((min) => (
                     <button
@@ -616,7 +615,6 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              {/* 💡 【大改善】プルダウン（select）を廃止し、全体に合わせたワンタップボタンへ変更 */}
               <div className="space-y-1.5 text-left bg-gray-50/80 p-3.5 rounded-2xl border border-gray-100">
                 <div className="flex justify-between items-center mb-1 px-0.5">
                   <span className="text-xs font-bold text-gray-500">休憩時間</span>

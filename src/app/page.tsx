@@ -261,10 +261,20 @@ export default function DashboardPage() {
   const handleProceedToEndConfirm = () => {
     const selectedEndTimeStr = `${endHourInput}:${endMinuteInput}`;
     
+    // 💡 【追加】現在の時刻よりも未来の時刻を選択できないようにブロック
+    const [endH, endM] = selectedEndTimeStr.split(":").map(Number);
+    const selectedEndTotalMinutes = endH * 60 + endM;
+    const currentTotalMinutes = currentTime.getHours() * 60 + currentTime.getMinutes();
+
+    if (selectedEndTotalMinutes > currentTotalMinutes) {
+      setStatusMessage("⚠️ エラー：現在の時刻よりも未来の時間は選択できません。");
+      setTimeout(() => setStatusMessage(null), 5000);
+      return;
+    }
+
     if (currentStartTimeStr) {
       const [startH, startM] = currentStartTimeStr.split(":").map(Number);
-      const [endH, endM] = selectedEndTimeStr.split(":").map(Number);
-      const totalWorkMinutes = (endH * 60 + endM) - (startH * 60 + startM);
+      const totalWorkMinutes = selectedEndTotalMinutes - (startH * 60 + startM);
 
       if (totalWorkMinutes <= 0) {
         setStatusMessage("⚠️ エラー：終了時間は開始時間よりも後の時間を指定してください。");

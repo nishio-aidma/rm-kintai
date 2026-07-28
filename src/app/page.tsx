@@ -197,8 +197,9 @@ export default function DashboardPage() {
   const formatDate = (date: Date) => date.toLocaleDateString("ja-JP", { year: "numeric", month: "long", day: "numeric", weekday: "long" });
 
   const handleOpenStartModal = () => {
-    setStartHourInput("09");
-    setStartMinuteInput("00");
+    const now = new Date();
+    setStartHourInput(String(now.getHours()).padStart(2, '0'));
+    setStartMinuteInput(String(now.getMinutes()).padStart(2, '0'));
     setShowStartModal(true);
   };
 
@@ -214,11 +215,24 @@ export default function DashboardPage() {
     setMinFunc(String(next).padStart(2, '0'));
   };
 
+  // 🔒 業務開始時の時間制限（現在の時刻よりも過去の時間は選択不可）
   const handleProceedToStartConfirm = () => {
+    const selectedStartTimeStr = `${startHourInput}:${startMinuteInput}`;
+    const [startH, startM] = selectedStartTimeStr.split(":").map(Number);
+    const selectedStartTotalMinutes = startH * 60 + startM;
+    const currentTotalMinutes = currentTime.getHours() * 60 + currentTime.getMinutes();
+
+    if (selectedStartTotalMinutes < currentTotalMinutes) {
+      setStatusMessage("⚠️ エラー：現在の時刻よりも過去の時間で業務を開始することはできません。");
+      setTimeout(() => setStatusMessage(null), 6000);
+      return;
+    }
+
     setShowStartModal(false);
     setShowStartConfirmModal(true);
   };
 
+  // 🔒 重複チェックエラーを具体的に画面表示する業務開始処理
   const handleConfirmStartWork = async () => {
     if (!userId) return;
     try {
@@ -245,8 +259,11 @@ export default function DashboardPage() {
       setWorkState("working");
       setStatusMessage(`業務を開始しました！`);
       setTimeout(() => setStatusMessage(null), 4000);
-    } catch (error) {
-      setStatusMessage("エラー：業務開始データの保存に失敗しました。");
+    } catch (error: any) {
+      // 💡 リポジトリから返ってきた具体エラー（重複理由など）をそのまま画面に表示
+      const errorMsg = error?.message || "エラー：業務開始データの保存に失敗しました。";
+      setStatusMessage(errorMsg);
+      setTimeout(() => setStatusMessage(null), 7000);
     }
   };
 
@@ -261,14 +278,14 @@ export default function DashboardPage() {
   const handleProceedToEndConfirm = () => {
     const selectedEndTimeStr = `${endHourInput}:${endMinuteInput}`;
     
-    // 💡 【追加】現在の時刻よりも未来の時刻を選択できないようにブロック
+    // 🔒 現在の時刻よりも未来の時刻を選択できないようにブロック
     const [endH, endM] = selectedEndTimeStr.split(":").map(Number);
     const selectedEndTotalMinutes = endH * 60 + endM;
     const currentTotalMinutes = currentTime.getHours() * 60 + currentTime.getMinutes();
 
     if (selectedEndTotalMinutes > currentTotalMinutes) {
       setStatusMessage("⚠️ エラー：現在の時刻よりも未来の時間は選択できません。");
-      setTimeout(() => setStatusMessage(null), 5000);
+      setTimeout(() => setStatusMessage(null), 6000);
       return;
     }
 
@@ -278,13 +295,13 @@ export default function DashboardPage() {
 
       if (totalWorkMinutes <= 0) {
         setStatusMessage("⚠️ エラー：終了時間は開始時間よりも後の時間を指定してください。");
-        setTimeout(() => setStatusMessage(null), 5000);
+        setTimeout(() => setStatusMessage(null), 6000);
         return;
       }
 
       if (breakMinutesInput >= totalWorkMinutes) {
         setStatusMessage(`⚠️ エラー：休憩時間（${breakMinutesInput}分）が稼働時間（${totalWorkMinutes}分）以上になっています。`);
-        setTimeout(() => setStatusMessage(null), 5000);
+        setTimeout(() => setStatusMessage(null), 6000);
         return;
       }
     }
@@ -293,6 +310,7 @@ export default function DashboardPage() {
     setShowEndConfirmModal(true);
   };
 
+  // 🔒 重複チェックエラーを具体的に画面表示する業務終了処理
   const handleConfirmEndWork = async () => {
     if (!currentStampId) return;
     try {
@@ -315,18 +333,30 @@ export default function DashboardPage() {
       setBreakMinutesInput(0);
       setStatusMessage(`お疲れ様でした！本日の業務終了を記録しました。`);
       setTimeout(() => setStatusMessage(null), 4000);
-    } catch (error) {
-      setStatusMessage("エラー：業務終了データの保存に失敗しました。");
+    } catch (error: any) {
+      // 💡 リポジトリから返ってきた具体エラーをそのまま画面に表示
+      const errorMsg = error?.message || "エラー：業務終了データの保存に失敗しました。";
+      setStatusMessage(errorMsg);
+      setTimeout(() => setStatusMessage(null), 7000);
     }
   };
 
   return (
     <div 
-      className="min-h-screen bg-gray-50 text-gray-800 antialiased"
+      className="min-h-screen bg-gray-50 text-gray-800 antialiased relative"
       style={{
         fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif'
       }}
     >
+      {/* 👑 モーダルのさらに上に浮き出る「最前面エラー・ステータス通知バナー」 */}
+      {statusMessage && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] w-[90%] max-w-md shadow-2xl transition-all animate-fadeIn">
+          <div className="bg-gray-900/95 backdrop-blur-md text-white border border-gray-700 px-6 py-4 rounded-2xl text-xs sm:text-sm font-bold text-center tracking-tight leading-relaxed shadow-emerald-500/10">
+            {statusMessage}
+          </div>
+        </div>
+      )}
+
       <header className="bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between shadow-sm">
         <div className="flex items-center space-x-3">
           <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${userRole === "owner" ? "bg-gray-800 text-white" : "bg-[#34C759]/10 text-[#34C759]"}`}>
@@ -376,7 +406,7 @@ export default function DashboardPage() {
               {userName ? `${userName} さん、今日もありがとうございます！` : "今日もありがとうございます！"}
             </p>
 
-            {/* 💡 「内部計測中」を表示せず、「選択開始時刻: 09:00」のみを表示 */}
+            {/* 💡 「選択開始時刻: 09:00」のみを表示 */}
             {workState === "working" && currentStartTimeStr && (
               <div className="pt-1">
                 <p className="text-xs font-bold text-[#34C759] bg-[#34C759]/10 border border-[#34C759]/20 py-1.5 px-4 rounded-full inline-block animate-fadeIn">
@@ -385,12 +415,6 @@ export default function DashboardPage() {
               </div>
             )}
           </div>
-
-          {statusMessage && (
-            <div className="max-w-md mx-auto bg-[#34C759]/10 text-[#28A745] border border-[#34C759]/20 px-6 py-3.5 rounded-2xl text-sm font-semibold animate-fadeIn">
-              {statusMessage}
-            </div>
-          )}
 
           <div className="flex flex-col sm:flex-row justify-center items-stretch space-y-3 sm:space-y-0 sm:space-x-4 max-w-md mx-auto">
             <button 
@@ -675,7 +699,7 @@ export default function DashboardPage() {
               
               <div className="py-6 space-y-2">
                 <p className="text-sm text-gray-500 font-medium">終了時間 <span className="text-4xl font-black text-gray-900 ml-2 font-mono tracking-tight tabular-nums">{endHourInput}:{endMinuteInput}</span></p>
-                <p className="text-sm text-gray-500 font-medium pt-1">休憩時間 <span className="text-xl font-bold text-gray-800 ml-2 font-mono tabular-nums">{breakMinutesInput === 0 ? "なし" : `${breakMinutesInput}分`}</span></p>
+                <p className="text-sm text-gray-500 font-medium pt-1">休憩時間 <span className="text-xl font-bold text-gray-800 ml-2 font-mono tracking-tight tabular-nums">{breakMinutesInput === 0 ? "なし" : `${breakMinutesInput}分`}</span></p>
               </div>
               
               <p className="text-xs text-gray-500 font-medium">
@@ -685,7 +709,7 @@ export default function DashboardPage() {
 
             <div className="flex flex-col space-y-2 pt-2">
               <button onClick={handleConfirmEndWork} className="w-full bg-gray-800 hover:bg-gray-900 text-white font-bold py-3.5 rounded-xl text-sm transition-all cursor-pointer shadow-sm">確定して送信</button>
-              <button onClick={() => { setShowEndConfirmModal(false); setShowEndModal(true); }} className="w-full bg-white text-gray-600 font-bold py-3.5 rounded-xl text-sm transition-all cursor-pointer">修正する</button>
+              <button onClick={() => { setShowEndConfirmModal(false); setShowEndModal(true); }} className="w-full bg-white text-[#34C759] font-bold py-3.5 rounded-xl text-sm transition-all cursor-pointer">修正する</button>
             </div>
           </div>
         </div>

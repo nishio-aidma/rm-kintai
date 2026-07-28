@@ -44,14 +44,52 @@ const parseTimeToMinutes = (timeStr: string): number => {
   const parts = timeStr.split(":").map(Number);
   const h = parts[0] || 0;
   const m = parts[1] || 0;
-  // 秒数 (parts[2]) は計算に含めず完全切り捨て
   return h * 60 + m;
 };
 
+// 🔒 👑 【新設】同日内で勤務時間が重複していないかを厳密チェックする共通関数
+const checkTimeOverlap = async (
+  email: string,
+  workDate: string,
+  newStartStr: string,
+  newEndStr: string,
+  excludeStampId?: string
+) => {
+  const q = query(
+    collection(db, "attendance_records"),
+    where("email", "==", email),
+    where("workDate", "==", workDate),
+    where("deleted", "==", false)
+  );
+  const querySnapshot = await getDocs(q);
+
+  const newStart = parseTimeToMinutes(newStartStr);
+  // 終了時間が未設定（空文字）の場合は仮で24:00(1440分)として判定
+  const newEnd = newEndStr ? parseTimeToMinutes(newEndStr) : 1440;
+
+  for (const docSnap of querySnapshot.docs) {
+    if (excludeStampId && docSnap.id === excludeStampId) continue; // 自分自身は除外
+
+    const data = docSnap.data();
+    const existingStart = parseTimeToMinutes(data.startTime);
+    // 既存レコードが終了していない(稼働中)場合は仮で24:00(1440分)扱い
+    const existingEnd = data.endTime ? parseTimeToMinutes(data.endTime) : 1440;
+
+    // 時間帯の重複判定式: (新規開始 < 既存終了) かつ (新規終了 > 既存開始)
+    if (newStart < existingEnd && newEnd > existingStart) {
+      const existingPeriod = data.endTime ? `${data.startTime}〜${data.endTime}` : `${data.startTime}〜(稼働中)`;
+      throw new Error(`⚠️ エラー：指定された時間帯は、既存の勤務記録（${existingPeriod}）と重複しています。`);
+    }
+  }
+};
+
 export const attendanceRepository = {
-  // 👑 1. 業務開始データを保存（選択時間と実際の操作時間の両方を保存するよう拡張）
+  // 👑 1. 業務開始データを保存（重複チェックを追加）
   saveStartRecord: async (data: AttendanceRecordInput) => {
     try {
+      // 🔒 同日内の時間帯重複を事前にブロック
+      await checkTimeOverlap(data.email, data.workDate, data.startTime, "");
+
       const attendanceCollection = collection(db, "attendance_records");
       const newRecord = {
         userId: data.userId,
@@ -78,7 +116,7 @@ export const attendanceRepository = {
     }
   },
 
-  // 👑 2. 業務終了時刻の保存（秒数を切り捨てて分単位で正確に計算）
+  // 👑 2. 業務終了時刻の保存（重複チェックと秒数切り捨て計算）
   saveEndRecord: async (stampId: string, endTimeStr: string, breakMinutes: number, actualEndTimeStr?: string) => {
     try {
       const recordRef = doc(db, "attendance_records", stampId);
@@ -91,18 +129,19 @@ export const attendanceRepository = {
       if (recordSnap.exists()) {
         const data = recordSnap.data();
         const startTimeStr = data.startTime;
+        
         if (startTimeStr && endTimeStr) {
-          // 秒数を切り捨てて開始・終了の総分数を算出
+          // 🔒 終了時間をセットした際、他データと被らないかチェック（自身 excludeStampId を除外）
+          await checkTimeOverlap(data.email, data.workDate, startTimeStr, endTimeStr, stampId);
+
           const startTotalMinutes = parseTimeToMinutes(startTimeStr);
           let endTotalMinutes = parseTimeToMinutes(endTimeStr);
           
-          // 日を跨ぐ場合（終了時刻が開始時刻以前の場合）の補正
           if (endTotalMinutes <= startTotalMinutes) {
             endTotalMinutes += 24 * 60;
           }
           
           const totalDiff = endTotalMinutes - startTotalMinutes;
-          // 分単位で実働時間を算出（秒は切り捨て済み）
           workMinutes = Math.max(0, totalDiff - validBreakMinutes);
           workHours = Math.round((workMinutes / 60) * 100) / 100;
         }
@@ -169,10 +208,18 @@ export const attendanceRepository = {
     }
   },
 
-  // 6. 管理者が打刻生データを手動修正（秒数を切り捨てて分単位で再計算）
+  // 6. 管理者が打刻生データを手動修正（重複チェックを追加）
   updateRecordByAdmin: async (stampId: string, updatedFields: { workDate: string; startTime: string; endTime: string; breakMinutes: number }) => {
     try {
       const recordRef = doc(db, "attendance_records", stampId);
+      const recordSnap = await getDoc(recordRef);
+      if (!recordSnap.exists()) throw new Error("対象データが見つかりません。");
+
+      const recordData = recordSnap.data();
+
+      // 🔒 修正後の時間帯が他データと被らないかチェック（自分自身の stampId を除外）
+      await checkTimeOverlap(recordData.email, updatedFields.workDate, updatedFields.startTime, updatedFields.endTime, stampId);
+
       let workMinutes = 0;
       let workHours = 0;
       
@@ -202,9 +249,12 @@ export const attendanceRepository = {
     }
   },
 
-  // 7. 管理者が1から打刻レコードを手動作成（秒数を切り捨てて分単位で計算）
+  // 7. 管理者が1から打刻レコードを手動作成（重複チェックを追加）
   createRecordByAdmin: async (email: string, userName: string, fields: { workDate: string; startTime: string; endTime: string; breakMinutes: number }) => {
     try {
+      // 🔒 新規作成の時間帯が既存データと被らないかチェック
+      await checkTimeOverlap(email, fields.workDate, fields.startTime, fields.endTime);
+
       const attendanceCollection = collection(db, "attendance_records");
       let workMinutes = 0;
       let workHours = 0;

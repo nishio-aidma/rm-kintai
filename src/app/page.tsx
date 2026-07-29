@@ -92,7 +92,7 @@ export default function DashboardPage() {
   const [currentStampId, setCurrentStampId] = useState<string | null>(null);
   const [currentStartTimeStr, setCurrentStartTimeStr] = useState<string>("");
 
-  // 業務開始の時間選択モーダル制御（デフォルト 09:00）
+  // 業務開始の時間選択モーダル制御
   const [showStartModal, setShowStartModal] = useState<boolean>(false);
   const [showStartConfirmModal, setShowStartConfirmModal] = useState<boolean>(false);
   const [startHourInput, setStartHourInput] = useState<string>("09");
@@ -196,10 +196,21 @@ export default function DashboardPage() {
   const formatTime = (date: Date) => date.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   const formatDate = (date: Date) => date.toLocaleDateString("ja-JP", { year: "numeric", month: "long", day: "numeric", weekday: "long" });
 
+  // 💡 9:00以前なら「09:00」、9:01以降なら「現在時刻」を初期設定するスマート制御
   const handleOpenStartModal = () => {
     const now = new Date();
-    setStartHourInput(String(now.getHours()).padStart(2, '0'));
-    setStartMinuteInput(String(now.getMinutes()).padStart(2, '0'));
+    const currentTotalMinutes = now.getHours() * 60 + now.getMinutes();
+    const nineAMMinutes = 9 * 60; // 09:00 = 540分
+
+    if (currentTotalMinutes <= nineAMMinutes) {
+      // 09:00以前（例: 08:30や09:00）の場合はデフォルト「09:00」を表示
+      setStartHourInput("09");
+      setStartMinuteInput("00");
+    } else {
+      // 09:01以降の場合は現在の時刻をデフォルト表示
+      setStartHourInput(String(now.getHours()).padStart(2, '0'));
+      setStartMinuteInput(String(now.getMinutes()).padStart(2, '0'));
+    }
     setShowStartModal(true);
   };
 
@@ -215,15 +226,15 @@ export default function DashboardPage() {
     setMinFunc(String(next).padStart(2, '0'));
   };
 
-  // 🔒 業務開始時の時間制限（現在の時刻よりも過去の時間は選択不可）
+  // 🔒 業務開始モーダルで「次へ」を押した時の判定（現在時刻より過去であれば即時ブロック）
   const handleProceedToStartConfirm = () => {
-    const selectedStartTimeStr = `${startHourInput}:${startMinuteInput}`;
-    const [startH, startM] = selectedStartTimeStr.split(":").map(Number);
-    const selectedStartTotalMinutes = startH * 60 + startM;
-    const currentTotalMinutes = currentTime.getHours() * 60 + currentTime.getMinutes();
+    const now = new Date();
+    const selectedStartTotalMinutes = parseInt(startHourInput, 10) * 60 + parseInt(startMinuteInput, 10);
+    const currentTotalMinutes = now.getHours() * 60 + now.getMinutes();
 
     if (selectedStartTotalMinutes < currentTotalMinutes) {
-      setStatusMessage("⚠️ エラー：現在の時刻よりも過去の時間で業務を開始することはできません。");
+      const nowStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      setStatusMessage(`⚠️ エラー：現在の時刻（${nowStr}）より過去の時間で業務を開始することはできません。`);
       setTimeout(() => setStatusMessage(null), 6000);
       return;
     }
@@ -232,14 +243,29 @@ export default function DashboardPage() {
     setShowStartConfirmModal(true);
   };
 
-  // 🔒 重複チェックエラーを具体的に画面表示する業務開始処理
+  // 🔒 「確定して送信」を押した瞬間の判定（二重チェック）
   const handleConfirmStartWork = async () => {
     if (!userId) return;
+
+    const now = new Date();
+    const selectedStartTotalMinutes = parseInt(startHourInput, 10) * 60 + parseInt(startMinuteInput, 10);
+    const currentTotalMinutes = now.getHours() * 60 + now.getMinutes();
+
+    // 確認モーダルで時間を置いた結果、過去時間になってしまっていないかチェック
+    if (selectedStartTotalMinutes < currentTotalMinutes) {
+      const nowStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      setShowStartConfirmModal(false);
+      setShowStartModal(true);
+      setStatusMessage(`⚠️ エラー：時刻が過ぎたため、指定された時間は過去の時間になっています（現在時刻: ${nowStr}）。`);
+      setTimeout(() => setStatusMessage(null), 6000);
+      return;
+    }
+
     try {
-      const todayStr = currentTime.getFullYear() + "-" + String(currentTime.getMonth() + 1).padStart(2, '0') + "-" + String(currentTime.getDate()).padStart(2, '0');
+      const todayStr = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, '0') + "-" + String(now.getDate()).padStart(2, '0');
       
       const selectedTimeStr = `${startHourInput}:${startMinuteInput}`;
-      const actualTimeStr = String(currentTime.getHours()).padStart(2, '0') + ":" + String(currentTime.getMinutes()).padStart(2, '0');
+      const actualTimeStr = String(now.getHours()).padStart(2, '0') + ":" + String(now.getMinutes()).padStart(2, '0');
 
       setStatusMessage("業務開始データを送信中...");
       setShowStartConfirmModal(false);
@@ -260,7 +286,6 @@ export default function DashboardPage() {
       setStatusMessage(`業務を開始しました！`);
       setTimeout(() => setStatusMessage(null), 4000);
     } catch (error: any) {
-      // 💡 リポジトリから返ってきた具体エラー（重複理由など）をそのまま画面に表示
       const errorMsg = error?.message || "エラー：業務開始データの保存に失敗しました。";
       setStatusMessage(errorMsg);
       setTimeout(() => setStatusMessage(null), 7000);
@@ -276,12 +301,9 @@ export default function DashboardPage() {
   };
 
   const handleProceedToEndConfirm = () => {
-    const selectedEndTimeStr = `${endHourInput}:${endMinuteInput}`;
-    
-    // 🔒 現在の時刻よりも未来の時刻を選択できないようにブロック
-    const [endH, endM] = selectedEndTimeStr.split(":").map(Number);
-    const selectedEndTotalMinutes = endH * 60 + endM;
-    const currentTotalMinutes = currentTime.getHours() * 60 + currentTime.getMinutes();
+    const now = new Date();
+    const selectedEndTotalMinutes = parseInt(endHourInput, 10) * 60 + parseInt(endMinuteInput, 10);
+    const currentTotalMinutes = now.getHours() * 60 + now.getMinutes();
 
     if (selectedEndTotalMinutes > currentTotalMinutes) {
       setStatusMessage("⚠️ エラー：現在の時刻よりも未来の時間は選択できません。");
@@ -310,12 +332,12 @@ export default function DashboardPage() {
     setShowEndConfirmModal(true);
   };
 
-  // 🔒 重複チェックエラーを具体的に画面表示する業務終了処理
   const handleConfirmEndWork = async () => {
     if (!currentStampId) return;
     try {
+      const now = new Date();
       const selectedEndTimeStr = `${endHourInput}:${endMinuteInput}`;
-      const actualTimeStr = String(currentTime.getHours()).padStart(2, '0') + ":" + String(currentTime.getMinutes()).padStart(2, '0');
+      const actualTimeStr = String(now.getHours()).padStart(2, '0') + ":" + String(now.getMinutes()).padStart(2, '0');
 
       setStatusMessage("業務終了データを送信中...");
       setShowEndConfirmModal(false);
@@ -334,7 +356,6 @@ export default function DashboardPage() {
       setStatusMessage(`お疲れ様でした！本日の業務終了を記録しました。`);
       setTimeout(() => setStatusMessage(null), 4000);
     } catch (error: any) {
-      // 💡 リポジトリから返ってきた具体エラーをそのまま画面に表示
       const errorMsg = error?.message || "エラー：業務終了データの保存に失敗しました。";
       setStatusMessage(errorMsg);
       setTimeout(() => setStatusMessage(null), 7000);
@@ -348,7 +369,7 @@ export default function DashboardPage() {
         fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif'
       }}
     >
-      {/* 👑 モーダルのさらに上に浮き出る「最前面エラー・ステータス通知バナー」 */}
+      {/* 👑 最前面エラー・ステータス通知バナー */}
       {statusMessage && (
         <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] w-[90%] max-w-md shadow-2xl transition-all animate-fadeIn">
           <div className="bg-gray-900/95 backdrop-blur-md text-white border border-gray-700 px-6 py-4 rounded-2xl text-xs sm:text-sm font-bold text-center tracking-tight leading-relaxed shadow-emerald-500/10">
@@ -406,7 +427,6 @@ export default function DashboardPage() {
               {userName ? `${userName} さん、今日もありがとうございます！` : "今日もありがとうございます！"}
             </p>
 
-            {/* 💡 「選択開始時刻: 09:00」のみを表示 */}
             {workState === "working" && currentStartTimeStr && (
               <div className="pt-1">
                 <p className="text-xs font-bold text-[#34C759] bg-[#34C759]/10 border border-[#34C759]/20 py-1.5 px-4 rounded-full inline-block animate-fadeIn">

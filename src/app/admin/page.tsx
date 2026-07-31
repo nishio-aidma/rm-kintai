@@ -81,7 +81,6 @@ export default function AdminPage() {
   const [editDate, setEditDate] = useState("");
   const [editStart, setEditStart] = useState("");
   const [editEnd, setEditEnd] = useState("");
-  const [editBreak, setEditBreak] = useState(0);
 
   const [editingDeptEmail, setEditingDeptEmail] = useState<string | null>(null);
   const [inputDeptText, setInputDeptText] = useState("");
@@ -250,20 +249,19 @@ export default function AdminPage() {
     setEditDate(record.workDate);
     setEditStart(record.startTime);
     setEditEnd(record.endTime === "---" ? "" : record.endTime);
-    setEditBreak(record.breakMinutes);
     setShowEditModal(true);
   };
 
   const handleSaveEdit = async () => {
     if (!editingRecord) return;
     try {
-      await attendanceRepository.updateRecordByAdmin(editingRecord.id, { workDate: editDate, startTime: editStart, endTime: editEnd, breakMinutes: editBreak });
+      await attendanceRepository.updateRecordByAdmin(editingRecord.id, { workDate: editDate, startTime: editStart, endTime: editEnd, breakMinutes: 0 });
       setShowEditModal(false);
       setStatusMessage("打刻データを修正・再計算しました。");
       setTimeout(() => setStatusMessage(null), 3000);
       await loadAllData();
-    } catch (error) {
-      setStatusMessage("⚠️ エラー：データの修正に失敗しました。");
+    } catch (error: any) {
+      setStatusMessage(error.message || "⚠️ エラー：データの修正に失敗しました。");
       setTimeout(() => setStatusMessage(null), 4000);
     }
   };
@@ -588,8 +586,20 @@ export default function AdminPage() {
         )}
       </main>
 
+      {/* 💡 EditModal への受け渡しから不要になった休憩時間の定義を削除 */}
       {showEditModal && editingRecord && (
-        <EditModal editingRecord={editingRecord} editDate={editDate} setEditDate={setEditDate} editStart={editStart} setEditStart={setEditStart} editEnd={editEnd} setEditEnd={setEditEnd} editBreak={editBreak} setEditBreak={setEditBreak} setShowEditModal={setShowEditModal} handleSaveEdit={handleSaveEdit} getMemberMeta={getMemberMeta} />
+        <EditModal 
+          editingRecord={editingRecord} 
+          editDate={editDate} 
+          setEditDate={setEditDate} 
+          editStart={editStart} 
+          setEditStart={setEditStart} 
+          editEnd={editEnd} 
+          setEditEnd={setEditEnd} 
+          setShowEditModal={setShowEditModal} 
+          handleSaveEdit={handleSaveEdit} 
+          getMemberMeta={getMemberMeta} 
+        />
       )}
     </div>
   );

@@ -23,8 +23,7 @@ interface EditModalProps {
   setEditStart: (v: string) => void;
   editEnd: string;
   setEditEnd: (v: string) => void;
-  editBreak: number;
-  setEditBreak: (v: number) => void;
+  // 💡 editBreak / setEditBreak の型定義を削除
   setShowEditModal: (v: boolean) => void;
   handleSaveEdit: () => Promise<void>;
   getMemberMeta: (email: string) => { name: string };
@@ -38,8 +37,6 @@ export default function EditModal({
   setEditStart,
   editEnd,
   setEditEnd,
-  editBreak,
-  setEditBreak,
   setShowEditModal,
   handleSaveEdit,
   getMemberMeta
@@ -99,15 +96,7 @@ export default function EditModal({
             </div>
           </div>
 
-          <div className="space-y-1">
-            <label className="text-[10px] text-gray-400 font-bold">休憩時間 (分)</label>
-            <input 
-              type="number" 
-              value={editBreak} 
-              onChange={(e) => setEditBreak(Number(e.target.value))} 
-              className="w-full border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-700 font-medium text-xs focus:outline-none text-center font-mono" 
-            />
-          </div>
+          {/* 💡 休憩時間(分)の入力フィールドを完全削除しました */}
         </div>
 
         <div className="flex space-x-2 pt-2">

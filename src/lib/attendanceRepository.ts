@@ -9,7 +9,7 @@ export interface AttendanceRecordInput {
   startTime: string; // ユーザーが選択した開始時間 (例: "09:00")
   actualStartTime?: string; // 👑 実際に打刻ボタンを押したシステム操作時刻 (例: "09:15")
   endTime?: string;
-  breakMinutes: number;
+  breakMinutes?: number; // 💡 互換性維持のためオプショナル化
 }
 
 export interface MemberInfo {
@@ -47,7 +47,7 @@ const parseTimeToMinutes = (timeStr: string): number => {
   return h * 60 + m;
 };
 
-// 🔒 👑 【新設】同日内で勤務時間が重複していないかを厳密チェックする共通関数
+// 🔒 👑 同日内で勤務時間が重複していないかを厳密チェックする共通関数
 const checkTimeOverlap = async (
   email: string,
   workDate: string,
@@ -84,7 +84,7 @@ const checkTimeOverlap = async (
 };
 
 export const attendanceRepository = {
-  // 👑 1. 業務開始データを保存（重複チェックを追加）
+  // 👑 1. 業務開始データを保存（重複チェック処理を保持）
   saveStartRecord: async (data: AttendanceRecordInput) => {
     try {
       // 🔒 同日内の時間帯重複を事前にブロック
@@ -100,7 +100,7 @@ export const attendanceRepository = {
         actualStartTime: data.actualStartTime || data.startTime, // 👑 実際に打刻操作をした時刻
         endTime: "",
         actualEndTime: "", // 終了時は初期化
-        breakMinutes: 0,
+        breakMinutes: 0, // 💡 休憩時間は常に0分で固定
         workMinutes: 0,
         workHours: 0,
         deleted: false,
@@ -116,22 +116,20 @@ export const attendanceRepository = {
     }
   },
 
-  // 👑 2. 業務終了時刻の保存（重複チェックと秒数切り捨て計算）
-  saveEndRecord: async (stampId: string, endTimeStr: string, breakMinutes: number, actualEndTimeStr?: string) => {
+  // 👑 2. 業務終了時刻の保存（休憩時間の引き算を廃止し、差分時間をそのまま稼働時間とする）
+  saveEndRecord: async (stampId: string, endTimeStr: string, breakMinutes?: number, actualEndTimeStr?: string) => {
     try {
       const recordRef = doc(db, "attendance_records", stampId);
       const recordSnap = await getDoc(recordRef);
       let workMinutes = 0;
       let workHours = 0;
       
-      const validBreakMinutes = Math.min(60, breakMinutes);
-      
       if (recordSnap.exists()) {
         const data = recordSnap.data();
         const startTimeStr = data.startTime;
         
         if (startTimeStr && endTimeStr) {
-          // 🔒 終了時間をセットした際、他データと被らないかチェック（自身 excludeStampId を除外）
+          // 🔒 終了時間をセットした際、他データと被らないかチェック
           await checkTimeOverlap(data.email, data.workDate, startTimeStr, endTimeStr, stampId);
 
           const startTotalMinutes = parseTimeToMinutes(startTimeStr);
@@ -141,8 +139,9 @@ export const attendanceRepository = {
             endTotalMinutes += 24 * 60;
           }
           
+          // 💡 休憩引き算をなくし、経過時間をそのまま稼働分数とする
           const totalDiff = endTotalMinutes - startTotalMinutes;
-          workMinutes = Math.max(0, totalDiff - validBreakMinutes);
+          workMinutes = Math.max(0, totalDiff);
           workHours = Math.round((workMinutes / 60) * 100) / 100;
         }
       }
@@ -150,7 +149,7 @@ export const attendanceRepository = {
       await updateDoc(recordRef, {
         endTime: endTimeStr, // ユーザーが選択した終了時間
         actualEndTime: actualEndTimeStr || endTimeStr, // 👑 実際に打刻操作をした時刻
-        breakMinutes: validBreakMinutes,
+        breakMinutes: 0, // 💡 休憩時間は常に0分で固定保存
         workMinutes: workMinutes,
         workHours: workHours,
         updatedAt: serverTimestamp(),
@@ -208,8 +207,8 @@ export const attendanceRepository = {
     }
   },
 
-  // 6. 管理者が打刻生データを手動修正（重複チェックを追加）
-  updateRecordByAdmin: async (stampId: string, updatedFields: { workDate: string; startTime: string; endTime: string; breakMinutes: number }) => {
+  // 6. 管理者が打刻生データを手動修正（休憩引き算を排除）
+  updateRecordByAdmin: async (stampId: string, updatedFields: { workDate: string; startTime: string; endTime: string; breakMinutes?: number }) => {
     try {
       const recordRef = doc(db, "attendance_records", stampId);
       const recordSnap = await getDoc(recordRef);
@@ -217,13 +216,11 @@ export const attendanceRepository = {
 
       const recordData = recordSnap.data();
 
-      // 🔒 修正後の時間帯が他データと被らないかチェック（自分自身の stampId を除外）
+      // 🔒 修正後の時間帯が他データと被らないかチェック
       await checkTimeOverlap(recordData.email, updatedFields.workDate, updatedFields.startTime, updatedFields.endTime, stampId);
 
       let workMinutes = 0;
       let workHours = 0;
-      
-      const validBreakMinutes = Math.min(60, updatedFields.breakMinutes);
       
       const startTotalMinutes = parseTimeToMinutes(updatedFields.startTime);
       let endTotalMinutes = parseTimeToMinutes(updatedFields.endTime);
@@ -232,13 +229,16 @@ export const attendanceRepository = {
         endTotalMinutes += 24 * 60;
       }
       
+      // 💡 休憩引き算を排除し、差分時間をそのまま稼働分数・時間に設定
       const totalDiff = endTotalMinutes - startTotalMinutes;
-      workMinutes = Math.max(0, totalDiff - validBreakMinutes);
+      workMinutes = Math.max(0, totalDiff);
       workHours = Math.round((workMinutes / 60) * 100) / 100;
 
       await updateDoc(recordRef, { 
-        ...updatedFields, 
-        breakMinutes: validBreakMinutes,
+        workDate: updatedFields.workDate,
+        startTime: updatedFields.startTime,
+        endTime: updatedFields.endTime,
+        breakMinutes: 0, // 💡 休憩時間は常に0分で固定
         workMinutes, 
         workHours, 
         updatedAt: serverTimestamp() 
@@ -249,8 +249,8 @@ export const attendanceRepository = {
     }
   },
 
-  // 7. 管理者が1から打刻レコードを手動作成（重複チェックを追加）
-  createRecordByAdmin: async (email: string, userName: string, fields: { workDate: string; startTime: string; endTime: string; breakMinutes: number }) => {
+  // 7. 管理者が1から打刻レコードを手動作成（休憩引き算を排除）
+  createRecordByAdmin: async (email: string, userName: string, fields: { workDate: string; startTime: string; endTime: string; breakMinutes?: number }) => {
     try {
       // 🔒 新規作成の時間帯が既存データと被らないかチェック
       await checkTimeOverlap(email, fields.workDate, fields.startTime, fields.endTime);
@@ -258,8 +258,6 @@ export const attendanceRepository = {
       const attendanceCollection = collection(db, "attendance_records");
       let workMinutes = 0;
       let workHours = 0;
-      
-      const validBreakMinutes = Math.min(60, fields.breakMinutes);
 
       const startTotalMinutes = parseTimeToMinutes(fields.startTime);
       let endTotalMinutes = parseTimeToMinutes(fields.endTime);
@@ -268,8 +266,9 @@ export const attendanceRepository = {
         endTotalMinutes += 24 * 60;
       }
 
+      // 💡 休憩引き算を排除
       const totalDiff = endTotalMinutes - startTotalMinutes;
-      workMinutes = Math.max(0, totalDiff - validBreakMinutes);
+      workMinutes = Math.max(0, totalDiff);
       workHours = Math.round((workMinutes / 60) * 100) / 100;
 
       const newRecord = {
@@ -281,7 +280,7 @@ export const attendanceRepository = {
         actualStartTime: fields.startTime,
         endTime: fields.endTime,
         actualEndTime: fields.endTime,
-        breakMinutes: validBreakMinutes,
+        breakMinutes: 0, // 💡 休憩時間は常に0分で固定
         workMinutes: workMinutes,
         workHours: workHours,
         deleted: false,
@@ -331,7 +330,7 @@ export const attendanceRepository = {
     }
   },
 
-  // 9. CSVメンバーマスタ保存（新CSVにないメンバーを自動削除する同期処理）
+  // 9. CSVメンバーマスタ保存
   saveImportedMembers: async (membersList: Omit<MemberInfo, "department" | "loginEmail">[]) => {
     try {
       const batch = writeBatch(db);
@@ -394,7 +393,7 @@ export const attendanceRepository = {
     }
   },
 
-  // 10. 通常メンバーマスタ ＋ オーナー固定メンバー枠を完全自動合流して配給
+  // 10. 通常メンバーマスタ ＋ オーナー固定メンバー枠の合流配給
   getAllMembers: async (): Promise<MemberInfo[]> => {
     try {
       const [membersSnapshot, fixedSnapshot] = await Promise.all([
@@ -456,7 +455,7 @@ export const attendanceRepository = {
     }
   },
 
-  // 11. メンバーの所属・ログインメール更新（二重安全同期仕様）
+  // 11. 所属・ログインメール更新
   updateMemberFields: async (email: string, department: string, loginEmail: string) => {
     try {
       const cleanEmail = email.trim().toLowerCase();
@@ -490,7 +489,7 @@ export const attendanceRepository = {
     }
   },
 
-  // 12. 権限トグル（二重安全同期仕様）
+  // 12. 権限トグル
   updateMemberRole: async (email: string, newRole: "user" | "admin") => {
     try {
       const cleanEmail = email.trim().toLowerCase();
@@ -518,7 +517,7 @@ export const attendanceRepository = {
     }
   },
 
-  // オーナー代理権限切り替え（二重安全同期仕様）
+  // オーナー代理権限切り替え
   updateMemberOwnerProxy: async (email: string, isProxy: boolean) => {
     try {
       const cleanEmail = email.trim().toLowerCase();
@@ -543,7 +542,7 @@ export const attendanceRepository = {
     }
   },
 
-  // 兼任リーダーアサイン・組織図の登録（二重安全同期仕様）
+  // 兼任リーダーアサイン
   updateMemberLeadingTeams: async (email: string, leadingTeams: string[]) => {
     try {
       const cleanEmail = email.trim().toLowerCase();
@@ -606,7 +605,7 @@ export const attendanceRepository = {
     }
   },
 
-  // 13. ログイン認証用の逆引き処理でも固定メンバー(fixed_members)を徹底救済
+  // 13. ログイン認証用の逆引き処理
   getMemberByEmail: async (loginEmail: string): Promise<MemberInfo | null> => {
     try {
       const cleanEmail = loginEmail.trim().toLowerCase();

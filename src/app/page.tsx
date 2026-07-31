@@ -98,12 +98,11 @@ export default function DashboardPage() {
   const [startHourInput, setStartHourInput] = useState<string>("09");
   const [startMinuteInput, setStartMinuteInput] = useState<string>("00");
 
-  // 業務終了の時間・休憩選択モーダル制御
+  // 業務終了の時間選択モーダル制御（休憩関連ステートを削除）
   const [showEndModal, setShowEndModal] = useState<boolean>(false);
   const [showEndConfirmModal, setShowEndConfirmModal] = useState<boolean>(false);
   const [endHourInput, setEndHourInput] = useState<string>("18");
   const [endMinuteInput, setEndMinuteInput] = useState<string>("00");
-  const [breakMinutesInput, setBreakMinutesInput] = useState<number>(0);
 
   const [customFooterMessage, setCustomFooterMessage] = useState<string>("");
 
@@ -196,18 +195,15 @@ export default function DashboardPage() {
   const formatTime = (date: Date) => date.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   const formatDate = (date: Date) => date.toLocaleDateString("ja-JP", { year: "numeric", month: "long", day: "numeric", weekday: "long" });
 
-  // 💡 9:00以前なら「09:00」、9:01以降なら「現在時刻」を初期設定するスマート制御
   const handleOpenStartModal = () => {
     const now = new Date();
     const currentTotalMinutes = now.getHours() * 60 + now.getMinutes();
-    const nineAMMinutes = 9 * 60; // 09:00 = 540分
+    const nineAMMinutes = 9 * 60;
 
     if (currentTotalMinutes <= nineAMMinutes) {
-      // 09:00以前（例: 08:30や09:00）の場合はデフォルト「09:00」を表示
       setStartHourInput("09");
       setStartMinuteInput("00");
     } else {
-      // 09:01以降の場合は現在の時刻をデフォルト表示
       setStartHourInput(String(now.getHours()).padStart(2, '0'));
       setStartMinuteInput(String(now.getMinutes()).padStart(2, '0'));
     }
@@ -226,7 +222,6 @@ export default function DashboardPage() {
     setMinFunc(String(next).padStart(2, '0'));
   };
 
-  // 🔒 業務開始モーダルで「次へ」を押した時の判定（現在時刻より過去であれば即時ブロック）
   const handleProceedToStartConfirm = () => {
     const now = new Date();
     const selectedStartTotalMinutes = parseInt(startHourInput, 10) * 60 + parseInt(startMinuteInput, 10);
@@ -243,7 +238,6 @@ export default function DashboardPage() {
     setShowStartConfirmModal(true);
   };
 
-  // 🔒 「確定して送信」を押した瞬間の判定（二重チェック）
   const handleConfirmStartWork = async () => {
     if (!userId) return;
 
@@ -251,7 +245,6 @@ export default function DashboardPage() {
     const selectedStartTotalMinutes = parseInt(startHourInput, 10) * 60 + parseInt(startMinuteInput, 10);
     const currentTotalMinutes = now.getHours() * 60 + now.getMinutes();
 
-    // 確認モーダルで時間を置いた結果、過去時間になってしまっていないかチェック
     if (selectedStartTotalMinutes < currentTotalMinutes) {
       const nowStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
       setShowStartConfirmModal(false);
@@ -296,7 +289,6 @@ export default function DashboardPage() {
     const now = new Date();
     setEndHourInput(String(now.getHours()).padStart(2, '0'));
     setEndMinuteInput(String(now.getMinutes()).padStart(2, '0'));
-    setBreakMinutesInput(0);
     setShowEndModal(true);
   };
 
@@ -320,12 +312,6 @@ export default function DashboardPage() {
         setTimeout(() => setStatusMessage(null), 6000);
         return;
       }
-
-      if (breakMinutesInput >= totalWorkMinutes) {
-        setStatusMessage(`⚠️ エラー：休憩時間（${breakMinutesInput}分）が稼働時間（${totalWorkMinutes}分）以上になっています。`);
-        setTimeout(() => setStatusMessage(null), 6000);
-        return;
-      }
     }
 
     setShowEndModal(false);
@@ -342,17 +328,17 @@ export default function DashboardPage() {
       setStatusMessage("業務終了データを送信中...");
       setShowEndConfirmModal(false);
 
+      // 💡 リポジトリ改修までの安全繋ぎとして、休憩時間には0を送信します
       await attendanceRepository.saveEndRecord(
         currentStampId, 
         selectedEndTimeStr, 
-        breakMinutesInput, 
+        0, 
         actualTimeStr
       );
 
       setWorkState("not_started");
       setCurrentStampId(null);
       setCurrentStartTimeStr("");
-      setBreakMinutesInput(0);
       setStatusMessage(`お疲れ様でした！本日の業務終了を記録しました。`);
       setTimeout(() => setStatusMessage(null), 4000);
     } catch (error: any) {
@@ -584,13 +570,13 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* ⬛ 3. 業務終了モーダル */}
+      {/* ⬛ 3. 業務終了モーダル (休憩選択UIを完全排除) */}
       {showEndModal && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn">
           <div className="bg-white rounded-[32px] p-8 max-w-sm w-full mx-4 shadow-xl text-center space-y-6">
             <div className="space-y-1">
-              <h4 className="text-lg font-bold text-gray-800 tracking-tight">終了と休憩時間</h4>
-              <p className="text-xs text-gray-400">終了時間と休憩時間を選択してください</p>
+              <h4 className="text-lg font-bold text-gray-800 tracking-tight">終了時間</h4>
+              <p className="text-xs text-gray-400">終了時間を選択してください</p>
             </div>
 
             <div className="space-y-5">
@@ -668,38 +654,6 @@ export default function DashboardPage() {
                   ))}
                 </div>
               </div>
-
-              <div className="space-y-1.5 text-left bg-gray-50/80 p-3.5 rounded-2xl border border-gray-100">
-                <div className="flex justify-between items-center mb-1 px-0.5">
-                  <span className="text-xs font-bold text-gray-500">休憩時間</span>
-                  <span className="text-xs font-black text-gray-800 font-mono">
-                    {breakMinutesInput === 0 ? "なし（0分）" : `${breakMinutesInput}分`}
-                  </span>
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  {[
-                    { label: "なし", value: 0 },
-                    { label: "15分", value: 15 },
-                    { label: "30分", value: 30 },
-                    { label: "45分", value: 45 },
-                    { label: "60分", value: 60 },
-                    { label: "90分", value: 90 },
-                  ].map((item) => (
-                    <button
-                      key={item.value}
-                      type="button"
-                      onClick={() => setBreakMinutesInput(item.value)}
-                      className={`py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                        breakMinutesInput === item.value
-                          ? "bg-gray-800 text-white shadow-sm scale-[1.02]"
-                          : "bg-white text-gray-600 hover:bg-gray-100 border border-gray-200/60"
-                      }`}
-                    >
-                      {item.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
             </div>
 
             <div className="flex space-x-3 pt-2">
@@ -710,7 +664,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* ⬛ 4. 業務終了：確認モーダル */}
+      {/* ⬛ 4. 業務終了：確認モーダル (休憩の表示を完全排除) */}
       {showEndConfirmModal && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn">
           <div className="bg-white rounded-[32px] p-8 max-w-sm w-full mx-4 shadow-xl text-center space-y-6">
@@ -719,7 +673,6 @@ export default function DashboardPage() {
               
               <div className="py-6 space-y-2">
                 <p className="text-sm text-gray-500 font-medium">終了時間 <span className="text-4xl font-black text-gray-900 ml-2 font-mono tracking-tight tabular-nums">{endHourInput}:{endMinuteInput}</span></p>
-                <p className="text-sm text-gray-500 font-medium pt-1">休憩時間 <span className="text-xl font-bold text-gray-800 ml-2 font-mono tracking-tight tabular-nums">{breakMinutesInput === 0 ? "なし" : `${breakMinutesInput}分`}</span></p>
               </div>
               
               <p className="text-xs text-gray-500 font-medium">

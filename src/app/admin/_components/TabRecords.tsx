@@ -15,7 +15,7 @@ interface AdminAttendanceRecord {
   actualStartTime?: string; // 👑 新設: 実際の開始打刻操作時刻
   endTime: string;
   actualEndTime?: string; // 👑 新設: 実際の終了打刻操作時刻
-  breakMinutes: number;
+  breakMinutes: number; // ※型エラーを防ぐため残しますが、使用はしません
   workHours: number;
   submitted: boolean;
   verified?: boolean;
@@ -50,7 +50,7 @@ export default function TabRecords({
   });
   const [createStart, setCreateStart] = useState("09:00");
   const [createEnd, setCreateEnd] = useState("18:00");
-  const [createBreak, setCreateBreak] = useState<number>(60);
+  // 💡 createBreakステートを完全に削除しました
 
   const [deleteModal, setDeleteModal] = useState<{ isOpen: boolean; recordId: string; name: string; date: string }>({
     isOpen: false,
@@ -99,10 +99,7 @@ export default function TabRecords({
           alert("⚠️ エラー：終了時間は開始時間よりも後の時刻を指定してください。");
           return;
         }
-        if (createBreak >= totalDiff) {
-          alert(`⚠️ エラー：選択された休憩時間（${createBreak}分）が、勤務時間の総枠（${totalDiff}分）以上になっています。正しい休憩時間を選択してください。`);
-          return;
-        }
+        // 💡 休憩時間が稼働時間を超えるかどうかのチェックを削除
       } else {
         alert("⚠️ エラー：時間の入力形式が正しくありません。(例: 09:00)");
         return;
@@ -122,7 +119,7 @@ export default function TabRecords({
         workDate: createDate,
         startTime: createStart,
         endTime: createEnd,
-        breakMinutes: createBreak
+        breakMinutes: 0 // 💡 休憩時間の引数には強制的に 0 を渡す
       });
 
       setShowCreateModal(false);
@@ -131,13 +128,12 @@ export default function TabRecords({
       setCreateEmail("");
       setCreateStart("09:00");
       setCreateEnd("18:00");
-      setCreateBreak(60);
 
       setStatusMessage("稼働記録を新規作成・自動計算しました！");
       setTimeout(() => setStatusMessage(null), 3000);
       await loadAllData();
-    } catch (error) {
-      alert("稼働記録の新規追加に失敗しました。");
+    } catch (error: any) {
+      alert(error.message || "稼働記録の新規追加に失敗しました。");
     }
   };
 
@@ -177,7 +173,7 @@ export default function TabRecords({
                 <th className="py-2">勤務日</th>
                 <th className="py-2">業務開始</th>
                 <th className="py-2">業務終了</th>
-                <th className="py-2">休憩</th>
+                {/* 💡 テーブルヘッダーから「休憩」列を削除 */}
                 <th className="py-2">実働時間</th>
                 <th className="py-2 text-center w-28">本人確認状況</th>
                 <th className="py-2 text-center w-36">リーダー確認</th>
@@ -248,7 +244,7 @@ export default function TabRecords({
                       </div>
                     </td>
 
-                    <td className="py-2 tabular-nums text-gray-400">{record.breakMinutes} 分</td>
+                    {/* 💡 テーブルボディから「休憩」列を削除 */}
                     <td className="py-2 tabular-nums font-bold text-gray-700">{record.workHours} 時間</td>
                     
                     <td className="py-2 text-center">
@@ -350,21 +346,8 @@ export default function TabRecords({
                   <input type="text" value={createEnd} onChange={(e) => setCreateEnd(e.target.value)} placeholder="18:00" className="w-full border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-700 font-medium text-xs focus:outline-none text-center" />
                 </div>
               </div>
-
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-gray-400">休憩時間</label>
-                <select 
-                  value={createBreak}
-                  onChange={(e) => setCreateBreak(Number(e.target.value))}
-                  className="w-full border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-700 font-bold text-xs focus:outline-none cursor-pointer"
-                >
-                  <option value={0}>0分（休憩なし）</option>
-                  <option value={15}>15分</option>
-                  <option value={30}>30分</option>
-                  <option value={45}>45分</option>
-                  <option value={60}>60分（1時間）</option>
-                </select>
-              </div>
+              
+              {/* 💡 休憩時間を選択する<select>のブロックを完全に削除 */}
             </div>
 
             <div className="flex space-x-2 pt-2">

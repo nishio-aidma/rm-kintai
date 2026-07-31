@@ -143,7 +143,7 @@ export default function RecordsPage() {
     }
   };
 
-  // すべての確認が完了した状態で押下できる「提出＆CSV出力」のコア関数
+  // 💡 「提出＆CSV出力」関数（CSVから休憩時間の項目を削除）
   const handleSubmitRecords = async () => {
     if (filteredRecords.length === 0) return;
     try {
@@ -152,12 +152,12 @@ export default function RecordsPage() {
       const targetIds = filteredRecords.map(r => r.id);
       await attendanceRepository.submitSelectedRecords(targetIds);
 
-      const headers = ["勤務日", "業務開始", "業務終了", "休憩時間", "実働時間(分)"];
+      // 💡 ヘッダーと行データから休憩時間を排除
+      const headers = ["勤務日", "業務開始", "業務終了", "実働時間(分)"];
       const rows = filteredRecords.map(r => [
         r.workDate,
         r.startTime,
         r.endTime === "---" ? "" : r.endTime,
-        `${r.breakMinutes}分`,
         r.workMinutes
       ].join(","));
 
@@ -181,7 +181,6 @@ export default function RecordsPage() {
   const totalWorkDays = uniqueDates.size;
   const totalWorkMinutes = filteredRecords.reduce((sum, rec) => sum + (rec.workMinutes || 0), 0);
 
-  // 💡 【修正点】合計時間を「●時間●分」として表示するための計算
   const displayTotalH = Math.floor(totalWorkMinutes / 60);
   const displayTotalM = totalWorkMinutes % 60;
 
@@ -238,7 +237,6 @@ export default function RecordsPage() {
           </div>
           <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 text-center space-y-0.5">
             <p className="text-[11px] font-bold text-gray-400 tracking-wider">当月の総稼働時間</p>
-            {/* 💡 【修正点】「●時間●分」の形式で表示 */}
             <p className="text-2xl font-black text-emerald-500 tabular-nums">
               {displayTotalH} <span className="text-sm font-medium text-emerald-600/80">時間</span> {displayTotalM} <span className="text-sm font-medium text-emerald-600/80">分</span>
             </p>
@@ -254,12 +252,11 @@ export default function RecordsPage() {
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
+                  {/* 💡 テーブルヘッダーから「休憩時間」列を削除 */}
                   <tr className="border-b border-gray-100 text-gray-400 font-semibold bg-gray-50/50">
                     <th className="py-2 pl-3 font-medium">勤務日</th>
                     <th className="py-2 font-medium">業務開始</th>
                     <th className="py-2 font-medium">業務終了</th>
-                    <th className="py-2 font-medium">休憩時間</th>
-                    {/* 💡 ヘッダーを「実働時間」に変更 */}
                     <th className="py-2 font-medium">実働時間</th>
                     <th className="py-2 font-medium text-center w-20">削除</th>
                     <th className="py-2 text-center w-36 pr-3 font-bold text-gray-500">確認状況</th>
@@ -273,9 +270,8 @@ export default function RecordsPage() {
                       <td className="py-2 tabular-nums">
                         <span className={record.endTime === "---" ? "text-gray-300 font-normal" : ""}>{record.endTime}</span>
                       </td>
-                      <td className="py-2 tabular-nums text-gray-400">{record.endTime === "---" ? "---" : `${record.breakMinutes} 分`}</td>
                       
-                      {/* 💡 【修正点】各日の表示を「●時間●分」の形式で表示 */}
+                      {/* 💡 テーブルボディから休憩時間セルを削除し、実働時間のみを表示 */}
                       <td className="py-2 tabular-nums font-semibold text-gray-700">
                         {record.endTime === "---" ? (
                           "---"

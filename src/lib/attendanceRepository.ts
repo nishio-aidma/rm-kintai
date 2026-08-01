@@ -49,7 +49,7 @@ export interface NotificationsSettings {
   midSubmissionReminder: NotificationConfig; 
   monthEndSubmissionReminder: NotificationConfig; 
   missingEndWorkReminder: NotificationConfig;
-  manualReminder?: NotificationConfig; // 💡 追加：手動個別催促用のテンプレート文面設定
+  manualReminder?: NotificationConfig;
   teamRoomIds: { [teamName: string]: string };
   apiToken?: string; 
 }
@@ -407,6 +407,7 @@ export const attendanceRepository = {
     }
   },
 
+  // 💡 【核心の修正】全メンバー取得処理：保護枠（fixed_members）の正しい情報を最優先で合体上書きする
   getAllMembers: async (): Promise<MemberInfo[]> => {
     try {
       const [membersSnapshot, fixedSnapshot] = await Promise.all([
@@ -416,58 +417,61 @@ export const attendanceRepository = {
 
       const allMembersMap = new Map<string, MemberInfo>();
 
+      // 1. まず通常枠のメンバーを読み込む
       membersSnapshot.forEach((docSnap) => {
         const data = docSnap.data();
         const rawEmail = docSnap.id;
         const cleanEmail = rawEmail.trim().toLowerCase();
 
-        const existing = allMembersMap.get(cleanEmail);
+        const memberName = data.name || `${data.lastName || ""} ${data.firstName || ""}`.trim() || cleanEmail.split("@")[0];
 
         allMembersMap.set(cleanEmail, {
-          id: data.id || existing?.id || "",
-          managementNumber: data.managementNumber || existing?.managementNumber || "---",
-          lastName: data.lastName || existing?.lastName || "",
-          lastNameKana: data.lastNameKana || existing?.lastNameKana || "",
-          firstName: data.firstName || existing?.firstName || "",
-          firstNameKana: data.firstNameKana || existing?.firstNameKana || "",
+          id: data.id || "",
+          managementNumber: data.managementNumber || "---",
+          lastName: data.lastName || "",
+          lastNameKana: data.lastNameKana || "",
+          firstName: data.firstName || "",
+          firstNameKana: data.firstNameKana || "",
           email: cleanEmail,
-          hourlyRate: data.hourlyRate || existing?.hourlyRate || 0,
-          media: data.media || existing?.media || "",
-          createdAtStr: data.createdAtStr || existing?.createdAtStr || "",
-          name: data.name || existing?.name || "",
-          department: data.department !== undefined ? data.department : (existing?.department || ""),
-          loginEmail: data.loginEmail || existing?.loginEmail || "",
-          role: data.role || existing?.role || "user",
-          isOwnerProxy: data.isOwnerProxy || existing?.isOwnerProxy || false,
-          leadingTeams: data.leadingTeams || existing?.leadingTeams || [],
+          hourlyRate: data.hourlyRate || 0,
+          media: data.media || "",
+          createdAtStr: data.createdAtStr || "",
+          name: memberName,
+          department: data.department !== undefined ? data.department : "",
+          loginEmail: data.loginEmail || "",
+          role: data.role || "user",
+          isOwnerProxy: data.isOwnerProxy || false,
+          leadingTeams: data.leadingTeams || [],
         });
       });
 
+      // 2. 次に固定保護枠（fixed_members）を読み込み、通常枠の不完全データを【最優先で上書き統合】する
       fixedSnapshot.forEach((docSnap) => {
         const data = docSnap.data();
         const rawEmail = docSnap.id;
         const cleanEmail = rawEmail.trim().toLowerCase();
 
-        if (!allMembersMap.has(cleanEmail)) {
-          allMembersMap.set(cleanEmail, {
-            id: data.id || "",
-            managementNumber: data.managementNumber || "固定枠",
-            lastName: data.lastName || "",
-            lastNameKana: data.lastNameKana || "",
-            firstName: data.firstName || "",
-            firstNameKana: data.firstNameKana || "",
-            email: cleanEmail,
-            hourlyRate: data.hourlyRate || 0,
-            media: data.media || "オーナー直接登録",
-            createdAtStr: data.createdAtStr || "",
-            name: data.name || "",
-            department: data.department !== undefined ? data.department : "",
-            loginEmail: data.loginEmail || "",
-            role: data.role || "user",
-            isOwnerProxy: data.isOwnerProxy || false,
-            leadingTeams: data.leadingTeams || [],
-          });
-        }
+        const existing = allMembersMap.get(cleanEmail);
+        const fixedName = data.name || `${data.lastName || ""} ${data.firstName || ""}`.trim() || existing?.name || cleanEmail.split("@")[0];
+
+        allMembersMap.set(cleanEmail, {
+          id: data.id || existing?.id || "",
+          managementNumber: data.managementNumber || existing?.managementNumber || "固定枠",
+          lastName: data.lastName || existing?.lastName || "",
+          lastNameKana: data.lastNameKana || existing?.lastNameKana || "",
+          firstName: data.firstName || existing?.firstName || "",
+          firstNameKana: data.firstNameKana || existing?.firstNameKana || "",
+          email: cleanEmail,
+          hourlyRate: data.hourlyRate !== undefined ? data.hourlyRate : (existing?.hourlyRate || 0),
+          media: data.media || existing?.media || "オーナー直接登録",
+          createdAtStr: data.createdAtStr || existing?.createdAtStr || "",
+          name: fixedName,
+          department: data.department !== undefined ? data.department : (existing?.department || ""),
+          loginEmail: data.loginEmail || existing?.loginEmail || "",
+          role: data.role || existing?.role || "user",
+          isOwnerProxy: data.isOwnerProxy !== undefined ? data.isOwnerProxy : (existing?.isOwnerProxy || false),
+          leadingTeams: data.leadingTeams || existing?.leadingTeams || [],
+        });
       });
 
       return Array.from(allMembersMap.values());
@@ -715,7 +719,6 @@ export const attendanceRepository = {
     }
   },
 
-  // 💡 【拡張】通知設定の取得：手動個別催促用のデフォルト文面を追加
   getNotificationSettings: async (): Promise<NotificationsSettings> => {
     try {
       const docRef = doc(db, "settings", "notifications");

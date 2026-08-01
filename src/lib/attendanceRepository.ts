@@ -47,10 +47,11 @@ export interface NotificationConfig {
 
 export interface NotificationsSettings {
   unverifiedReminder: NotificationConfig;
-  submissionReminder: NotificationConfig;
+  midSubmissionReminder: NotificationConfig; // 💡 追加：中間提出催促（第3・第4月曜）
+  monthEndSubmissionReminder: NotificationConfig; // 💡 追加：月末提出催促（最終日）
   missingEndWorkReminder: NotificationConfig;
   teamRoomIds: { [teamName: string]: string };
-  apiToken?: string; // 💡 追加: MEMBERS APIのトークンを保存する枠
+  apiToken?: string; // 💡 MEMBERS APIのトークンを保存する枠
 }
 
 // 💡 秒数を一切無視し、時刻文字列から「時」と「分」だけを取り出して総分数に変換するヘルパー関数
@@ -79,18 +80,15 @@ const checkTimeOverlap = async (
   const querySnapshot = await getDocs(q);
 
   const newStart = parseTimeToMinutes(newStartStr);
-  // 終了時間が未設定（空文字）の場合は仮で24:00(1440分)として判定
   const newEnd = newEndStr ? parseTimeToMinutes(newEndStr) : 1440;
 
   for (const docSnap of querySnapshot.docs) {
-    if (excludeStampId && docSnap.id === excludeStampId) continue; // 自分自身は除外
+    if (excludeStampId && docSnap.id === excludeStampId) continue;
 
     const data = docSnap.data();
     const existingStart = parseTimeToMinutes(data.startTime);
-    // 既存レコードが終了していない(稼働中)場合は仮で24:00(1440分)扱い
     const existingEnd = data.endTime ? parseTimeToMinutes(data.endTime) : 1440;
 
-    // 時間帯の重複判定式: (新規開始 < 既存終了) かつ (新規終了 > 既存開始)
     if (newStart < existingEnd && newEnd > existingStart) {
       const existingPeriod = data.endTime ? `${data.startTime}〜${data.endTime}` : `${data.startTime}〜(稼働中)`;
       throw new Error(`⚠️ エラー：指定された時間帯は、既存の勤務記録（${existingPeriod}）と重複しています。`);
@@ -99,10 +97,9 @@ const checkTimeOverlap = async (
 };
 
 export const attendanceRepository = {
-  // 👑 1. 業務開始データを保存（重複チェック処理を保持）
+  // 1. 業務開始データを保存
   saveStartRecord: async (data: AttendanceRecordInput) => {
     try {
-      // 🔒 同日内の時間帯重複を事前にブロック
       await checkTimeOverlap(data.email, data.workDate, data.startTime, "");
 
       const attendanceCollection = collection(db, "attendance_records");
@@ -111,11 +108,11 @@ export const attendanceRepository = {
         userName: data.userName,
         email: data.email,
         workDate: data.workDate,
-        startTime: data.startTime, // ユーザーが選択した開始時間
-        actualStartTime: data.actualStartTime || data.startTime, // 👑 実際に打刻操作をした時刻
+        startTime: data.startTime,
+        actualStartTime: data.actualStartTime || data.startTime,
         endTime: "",
-        actualEndTime: "", // 終了時は初期化
-        breakMinutes: 0, // 💡 休憩時間は常に0分で固定
+        actualEndTime: "",
+        breakMinutes: 0,
         workMinutes: 0,
         workHours: 0,
         deleted: false,
@@ -131,7 +128,7 @@ export const attendanceRepository = {
     }
   },
 
-  // 👑 2. 業務終了時刻の保存（休憩時間の引き算を廃止し、差分時間をそのまま稼働時間とする）
+  // 2. 業務終了時刻の保存
   saveEndRecord: async (stampId: string, endTimeStr: string, breakMinutes?: number, actualEndTimeStr?: string) => {
     try {
       const recordRef = doc(db, "attendance_records", stampId);
@@ -144,7 +141,6 @@ export const attendanceRepository = {
         const startTimeStr = data.startTime;
         
         if (startTimeStr && endTimeStr) {
-          // 🔒 終了時間をセットした際、他データと被らないかチェック
           await checkTimeOverlap(data.email, data.workDate, startTimeStr, endTimeStr, stampId);
 
           const startTotalMinutes = parseTimeToMinutes(startTimeStr);
@@ -154,7 +150,6 @@ export const attendanceRepository = {
             endTotalMinutes += 24 * 60;
           }
           
-          // 💡 休憩引き算をなくし、経過時間をそのまま稼働分数とする
           const totalDiff = endTotalMinutes - startTotalMinutes;
           workMinutes = Math.max(0, totalDiff);
           workHours = Math.round((workMinutes / 60) * 100) / 100;
@@ -162,9 +157,9 @@ export const attendanceRepository = {
       }
 
       await updateDoc(recordRef, {
-        endTime: endTimeStr, // ユーザーが選択した終了時間
-        actualEndTime: actualEndTimeStr || endTimeStr, // 👑 実際に打刻操作をした時刻
-        breakMinutes: 0, // 💡 休憩時間は常に0分で固定保存
+        endTime: endTimeStr,
+        actualEndTime: actualEndTimeStr || endTimeStr,
+        breakMinutes: 0,
         workMinutes: workMinutes,
         workHours: workHours,
         updatedAt: serverTimestamp(),
@@ -222,7 +217,7 @@ export const attendanceRepository = {
     }
   },
 
-  // 6. 管理者が打刻生データを手動修正（休憩引き算を排除）
+  // 6. 管理者が打刻生データを手動修正
   updateRecordByAdmin: async (stampId: string, updatedFields: { workDate: string; startTime: string; endTime: string; breakMinutes?: number }) => {
     try {
       const recordRef = doc(db, "attendance_records", stampId);
@@ -231,7 +226,6 @@ export const attendanceRepository = {
 
       const recordData = recordSnap.data();
 
-      // 🔒 修正後の時間帯が他データと被らないかチェック
       await checkTimeOverlap(recordData.email, updatedFields.workDate, updatedFields.startTime, updatedFields.endTime, stampId);
 
       let workMinutes = 0;
@@ -244,7 +238,6 @@ export const attendanceRepository = {
         endTotalMinutes += 24 * 60;
       }
       
-      // 💡 休憩引き算を排除し、差分時間をそのまま稼働分数・時間に設定
       const totalDiff = endTotalMinutes - startTotalMinutes;
       workMinutes = Math.max(0, totalDiff);
       workHours = Math.round((workMinutes / 60) * 100) / 100;
@@ -253,7 +246,7 @@ export const attendanceRepository = {
         workDate: updatedFields.workDate,
         startTime: updatedFields.startTime,
         endTime: updatedFields.endTime,
-        breakMinutes: 0, // 💡 休憩時間は常に0分で固定
+        breakMinutes: 0,
         workMinutes, 
         workHours, 
         updatedAt: serverTimestamp() 
@@ -264,10 +257,9 @@ export const attendanceRepository = {
     }
   },
 
-  // 7. 管理者が1から打刻レコードを手動作成（休憩引き算を排除）
+  // 7. 管理者が1から打刻レコードを手動作成
   createRecordByAdmin: async (email: string, userName: string, fields: { workDate: string; startTime: string; endTime: string; breakMinutes?: number }) => {
     try {
-      // 🔒 新規作成の時間帯が既存データと被らないかチェック
       await checkTimeOverlap(email, fields.workDate, fields.startTime, fields.endTime);
 
       const attendanceCollection = collection(db, "attendance_records");
@@ -281,7 +273,6 @@ export const attendanceRepository = {
         endTotalMinutes += 24 * 60;
       }
 
-      // 💡 休憩引き算を排除
       const totalDiff = endTotalMinutes - startTotalMinutes;
       workMinutes = Math.max(0, totalDiff);
       workHours = Math.round((workMinutes / 60) * 100) / 100;
@@ -295,7 +286,7 @@ export const attendanceRepository = {
         actualStartTime: fields.startTime,
         endTime: fields.endTime,
         actualEndTime: fields.endTime,
-        breakMinutes: 0, // 💡 休憩時間は常に0分で固定
+        breakMinutes: 0,
         workMinutes: workMinutes,
         workHours: workHours,
         deleted: false,
@@ -716,25 +707,55 @@ export const attendanceRepository = {
     }
   },
 
-  // 💡 【新規】通知設定の取得
+  // 💡 【更新】通知設定の取得（中間と月末の2つに初期値を拡張）
   getNotificationSettings: async (): Promise<NotificationsSettings> => {
     try {
       const docRef = doc(db, "settings", "notifications");
       const snap = await getDoc(docRef);
       if (snap.exists()) {
-        return snap.data() as NotificationsSettings;
+        const data = snap.data();
+        // 既存データがある場合でも補完して返す
+        return {
+          unverifiedReminder: data.unverifiedReminder || {
+            enabled: true,
+            time: "12:00",
+            message: "【ダコックリマインド】前日までの稼働記録で、未確認のデータがあります。内容をご確認の上、確認を完了させてください。\n[自分の記録URL]",
+          },
+          midSubmissionReminder: data.midSubmissionReminder || {
+            enabled: true,
+            time: "15:00",
+            message: "【ダコックリマインド】本日は月の中間稼働確認日（第3・第4月曜日）です。これまでの稼働記録をご確認の上、提出をお願いします。\n[自分の記録URL]",
+          },
+          monthEndSubmissionReminder: data.monthEndSubmissionReminder || {
+            enabled: true,
+            time: "15:00",
+            message: "【ダコックリマインド】本日は今月の最終稼働日です。必ずすべての稼働記録を確認し、稼働記録の提出をお願いします。\n[自分の記録URL]",
+          },
+          missingEndWorkReminder: data.missingEndWorkReminder || {
+            enabled: true,
+            time: "21:00",
+            message: "【ダコックリマインド】本日または過去の稼働記録で、業務終了時間が未登録のデータがあります。正しい終了時間を記録してください。\n[打刻画面URL]",
+          },
+          teamRoomIds: data.teamRoomIds || {},
+          apiToken: data.apiToken || "",
+        } as NotificationsSettings;
       }
-      // 💡 データがない場合のデフォルト値に apiToken を追加
+
       return {
         unverifiedReminder: {
           enabled: true,
           time: "12:00",
           message: "【ダコックリマインド】前日までの稼働記録で、未確認のデータがあります。内容をご確認の上、確認を完了させてください。\n[自分の記録URL]",
         },
-        submissionReminder: {
+        midSubmissionReminder: {
           enabled: true,
           time: "15:00",
-          message: "【ダコックリマインド】最終稼働日となりました。必ずすべての稼働記録を確認し、稼働記録の提出をお願いします。\n[自分の記録URL]",
+          message: "【ダコックリマインド】本日は月の中間稼働確認日（第3・第4月曜日）です。これまでの稼働記録をご確認の上、提出をお願いします。\n[自分の記録URL]",
+        },
+        monthEndSubmissionReminder: {
+          enabled: true,
+          time: "15:00",
+          message: "【ダコックリマインド】本日は今月の最終稼働日です。必ずすべての稼働記録を確認し、稼働記録の提出をお願いします。\n[自分の記録URL]",
         },
         missingEndWorkReminder: {
           enabled: true,
@@ -749,7 +770,7 @@ export const attendanceRepository = {
     }
   },
 
-  // 💡 【新規】通知設定の保存
+  // 💡 【更新】通知設定の保存
   saveNotificationSettings: async (settingsData: NotificationsSettings) => {
     try {
       const docRef = doc(db, "settings", "notifications");

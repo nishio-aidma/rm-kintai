@@ -75,6 +75,13 @@ function ScrollWheelPicker({
   );
 }
 
+// 打刻忘れレコード用の型定義
+interface MissingEndRecord {
+  id: string;
+  workDate: string;
+  startTime: string;
+}
+
 // 💡 useSearchParams を利用するダッシュボード画面本体
 function DashboardContent() {
   const router = useRouter();
@@ -107,6 +114,12 @@ function DashboardContent() {
 
   // 💡 未終了記録の警告モーダル表示用ステート
   const [showUnfinishedWarning, setShowUnfinishedWarning] = useState<boolean>(false);
+
+  // 👑 打刻忘れ修正専用モーダル用の状態管理
+  const [showFixMissingModal, setShowFixMissingModal] = useState<boolean>(false);
+  const [missingEndRecords, setMissingEndRecords] = useState<MissingEndRecord[]>([]);
+  const [fixEndHourInput, setFixEndHourInput] = useState<string>("18");
+  const [fixEndMinuteInput, setFixEndMinuteInput] = useState<string>("00");
 
   const hoursOptions = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
   const minutesOptions = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'));
@@ -165,7 +178,7 @@ function DashboardContent() {
             setWorkState("not_started");
           }
 
-          // 💡 正しいインポート情報（db, collection, query, where, getDocs）を使用して検索
+          // 💡 終了時刻が未登録の打刻データを取得
           const q = query(
             collection(db, "attendance_records"),
             where("email", "==", email),
@@ -175,15 +188,29 @@ function DashboardContent() {
           const querySnapshot = await getDocs(q);
           
           let hasOldUnfinished = false;
+          const missingList: MissingEndRecord[] = [];
+
           querySnapshot.forEach((docSnap) => {
             const data = docSnap.data();
-            // 今日以外の未終了データがあればフラグを立てる
+            // 今日以外の未終了データがあれば抽出
             if (data.workDate !== todayStr) {
               hasOldUnfinished = true;
+              missingList.push({
+                id: docSnap.id,
+                workDate: data.workDate || "",
+                startTime: data.startTime || "",
+              });
             }
           });
 
-          if (hasOldUnfinished) {
+          // 日付の降順でソート
+          missingList.sort((a, b) => b.workDate.localeCompare(a.workDate));
+          setMissingEndRecords(missingList);
+
+          // 👑 URLに action=fix_missing_end があるか、または打刻忘れデータがあれば特別モーダルを自動表示
+          if (searchParams?.get("action") === "fix_missing_end" || (searchParams?.get("action") !== "end" && missingList.length > 0)) {
+            setShowFixMissingModal(true);
+          } else if (hasOldUnfinished) {
             setShowUnfinishedWarning(true);
           }
 
@@ -375,6 +402,40 @@ function DashboardContent() {
       setTimeout(() => setStatusMessage(null), 4000);
     } catch (error: any) {
       const errorMsg = error?.message || "エラー：業務終了データの保存に失敗しました。";
+      setStatusMessage(errorMsg);
+      setTimeout(() => setStatusMessage(null), 7000);
+    }
+  };
+
+  // 👑 打刻忘れ専用モーダルでの特定レコード修正送信処理
+  const handleFixSingleMissingRecord = async (targetRecord: MissingEndRecord) => {
+    try {
+      const selectedEndTimeStr = `${fixEndHourInput}:${fixEndMinuteInput}`;
+      setStatusMessage("過去の打刻終了時間を更新中...");
+
+      await attendanceRepository.saveEndRecord(
+        targetRecord.id,
+        selectedEndTimeStr,
+        0,
+        selectedEndTimeStr
+      );
+
+      // 成功したらリストから取り除く
+      const remaining = missingEndRecords.filter(r => r.id !== targetRecord.id);
+      setMissingEndRecords(remaining);
+
+      setStatusMessage(`✅ ${targetRecord.workDate} の業務終了時間を ${selectedEndTimeStr} で保存しました！`);
+      setTimeout(() => setStatusMessage(null), 4000);
+
+      // 全て完了したらモーダルを閉じる
+      if (remaining.length === 0) {
+        setShowFixMissingModal(false);
+        if (searchParams?.get("action") === "fix_missing_end") {
+          router.replace("/");
+        }
+      }
+    } catch (error: any) {
+      const errorMsg = error?.message || "エラー：過去データの終了時間の更新に失敗しました。";
       setStatusMessage(errorMsg);
       setTimeout(() => setStatusMessage(null), 7000);
     }
@@ -703,7 +764,7 @@ function DashboardContent() {
       )}
 
       {/* 🚨 5. 未終了レコード警告モーダル */}
-      {showUnfinishedWarning && (
+      {showUnfinishedWarning && !showFixMissingModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[999] animate-fadeIn">
           <div className="bg-white rounded-3xl p-6 max-w-sm w-full mx-4 shadow-2xl border border-gray-100 text-center space-y-5 animate-scaleUp">
             <div className="w-12 h-12 mx-auto rounded-full bg-amber-50 text-amber-500 flex items-center justify-center">
@@ -724,12 +785,107 @@ function DashboardContent() {
             <div className="pt-2">
               <button 
                 type="button"
-                onClick={() => setShowUnfinishedWarning(false)} 
-                className="w-full bg-amber-500 hover:bg-amber-600 text-white text-xs font-black py-3.5 rounded-xl shadow-sm transition-all shadow-amber-100"
+                onClick={() => {
+                  setShowUnfinishedWarning(false);
+                  setShowFixMissingModal(true);
+                }} 
+                className="w-full bg-amber-500 hover:bg-amber-600 text-white text-xs font-black py-3.5 rounded-xl shadow-sm transition-all shadow-amber-100 cursor-pointer"
               >
-                確認した
+                打刻を修正するモーダルを開く
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 👑 6. 【新設】打刻忘れ（終了時間未入力）専用の修正モーダル */}
+      {showFixMissingModal && missingEndRecords.length > 0 && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-[1000] animate-fadeIn p-4">
+          <div className="bg-white rounded-[32px] p-6 sm:p-8 max-w-md w-full shadow-2xl border border-red-100 text-center space-y-6 max-h-[90vh] overflow-y-auto animate-scaleUp">
+            
+            <div className="space-y-2">
+              <div className="w-14 h-14 mx-auto rounded-full bg-red-50 text-red-500 flex items-center justify-center shadow-inner">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-7 h-7">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <h3 className="text-lg font-black text-gray-900 tracking-tight">⚠️ 業務終了の打刻忘れがあります</h3>
+              <p className="text-xs text-gray-500 font-medium leading-relaxed">
+                {userName} さんの過去の稼働記録で、終了時間が未登録のデータがあります。<br/>正しい終了時間を選択して修正を完了させてください。
+              </p>
+            </div>
+
+            {/* 未登録データカード一覧 */}
+            <div className="space-y-4">
+              {missingEndRecords.map((rec) => (
+                <div key={rec.id} className="bg-red-50/40 rounded-2xl p-4 border border-red-100 text-left space-y-3">
+                  <div className="flex items-center justify-between border-b border-red-100 pb-2">
+                    <span className="text-xs font-black text-red-600 bg-red-100/80 px-2.5 py-1 rounded-lg">
+                      対象日: {rec.workDate}
+                    </span>
+                    <span className="text-xs font-bold text-gray-500">
+                      開始時刻: <span className="font-mono text-gray-800 font-extrabold">{rec.startTime}</span>
+                    </span>
+                  </div>
+
+                  <div className="space-y-2 pt-1">
+                    <label className="text-[11px] font-bold text-gray-600 block">正しい終了時間を入力:</label>
+                    <div className="flex items-center justify-center space-x-2 bg-white p-2 rounded-2xl border border-gray-200 shadow-sm">
+                      <div className="flex items-center space-x-1">
+                        <ScrollWheelPicker options={hoursOptions} value={fixEndHourInput} onChange={setFixEndHourInput} />
+                        <span className="font-mono font-bold text-sm text-gray-400">時</span>
+                      </div>
+                      <span className="text-xl font-black text-gray-800 font-mono">:</span>
+                      <div className="flex items-center space-x-1">
+                        <ScrollWheelPicker options={minutesOptions} value={fixEndMinuteInput} onChange={setFixEndMinuteInput} />
+                        <span className="font-mono font-bold text-sm text-gray-400">分</span>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-center space-x-1.5 pt-1">
+                      {["00", "15", "30", "45"].map((min) => (
+                        <button
+                          key={min}
+                          type="button"
+                          onClick={() => setFixEndMinuteInput(min)}
+                          className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer font-mono ${
+                            fixEndMinuteInput === min
+                              ? "bg-red-500 text-white shadow-sm"
+                              : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                          }`}
+                        >
+                          {min}分
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleFixSingleMissingRecord(rec)}
+                    className="w-full bg-red-600 hover:bg-red-700 text-white font-black text-xs py-3 rounded-xl shadow-md transition-all active:scale-95 cursor-pointer mt-2"
+                  >
+                    この時間で業務終了を記録する
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <div className="pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowFixMissingModal(false);
+                  if (searchParams?.get("action") === "fix_missing_end") {
+                    router.replace("/");
+                  }
+                }}
+                className="text-xs font-bold text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                あとで修正する（閉じる）
+              </button>
+            </div>
+
           </div>
         </div>
       )}

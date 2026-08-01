@@ -13,7 +13,6 @@ import TabSettings from "./_components/TabSettings";
 import TabNotifications from "./_components/TabNotifications";
 import EditModal from "./_components/EditModal";
 
-// 💡 実打刻時間（actualStartTime / actualEndTime）を受け取れるよう型定義を拡張
 interface AdminAttendanceRecord {
   id: string;
   userName: string;
@@ -48,6 +47,9 @@ function splitCSVLine(line: string): string[] {
   return result;
 }
 
+// 💡 タブの型を定義
+type AdminTabType = "summary" | "records" | "members" | "csv" | "org" | "settings" | "notifications";
+
 export default function AdminPage() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
@@ -56,7 +58,7 @@ export default function AdminPage() {
   const [userRole, setUserRole] = useState<"admin" | "owner">("admin");
   const [myDepartment, setMyDepartment] = useState<string>("");
   
-  const [activeTab, setActiveTab] = useState<"summary" | "records" | "members" | "csv" | "org" | "settings" | "notifications">("records");
+  const [activeTab, setActiveTab] = useState<AdminTabType>("records");
 
   const [attendanceRecords, setAttendanceRecords] = useState<AdminAttendanceRecord[]>([]);
   const [members, setMembers] = useState<MemberInfo[]>([]);
@@ -127,6 +129,8 @@ export default function AdminPage() {
   useEffect(() => {
     const checkAdminAuth = async () => {
       const sessionStr = localStorage.getItem("session");
+      // 💡 ブラウザに記憶されているタブを取得
+      const savedTab = sessionStorage.getItem("adminActiveTab") as AdminTabType | null;
       
       if (sessionStr) {
         try {
@@ -136,18 +140,19 @@ export default function AdminPage() {
 
           if (email === "nishio@aidma-hd.jp") {
             setUserRole("owner");
-            setActiveTab("summary");
+            // 💡 記憶があればそれを、無ければデフォルトを開く
+            setActiveTab(savedTab || "summary");
           } else {
             const meta = await attendanceRepository.getMemberByEmail(email);
             if (meta && meta.isOwnerProxy) {
               setUserRole("owner");
-              setActiveTab("summary");
+              setActiveTab(savedTab || "summary");
             } else if (meta && meta.role === "admin") {
               setUserRole("admin");
               const deptStr = meta.department || "";
               setMyDepartment(deptStr);
               setFilterDepartment(deptStr);
-              setActiveTab("records");
+              setActiveTab(savedTab || "records");
             } else {
               router.push("/");
               return;
@@ -168,6 +173,12 @@ export default function AdminPage() {
 
     checkAdminAuth();
   }, [router]);
+
+  // 💡 タブを切り替えた時に、ブラウザの記憶（sessionStorage）にも保存する関数
+  const handleTabChange = (tab: AdminTabType) => {
+    setActiveTab(tab);
+    sessionStorage.setItem("adminActiveTab", tab);
+  };
 
   const getMemberMeta = (email: string) => {
     const matched = members.find(m => m.email === email || m.loginEmail === email);
@@ -415,38 +426,37 @@ export default function AdminPage() {
 
           <div className="flex space-x-2 border-l border-gray-200 pl-6 text-sm font-bold">
             {(userRole === "owner" || (userRole === "admin" && adminAllowedTabs.includes("summary"))) && (
-              <button onClick={() => setActiveTab("summary")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "summary" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
+              <button onClick={() => handleTabChange("summary")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "summary" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
                 稼働実績
               </button>
             )}
             {(userRole === "owner" || (userRole === "admin" && adminAllowedTabs.includes("records"))) && (
-              <button onClick={() => setActiveTab("records")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "records" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
+              <button onClick={() => handleTabChange("records")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "records" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
                 稼働記録
               </button>
             )}
             {(userRole === "owner" || (userRole === "admin" && adminAllowedTabs.includes("members"))) && (
-              <button onClick={() => setActiveTab("members")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "members" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
+              <button onClick={() => handleTabChange("members")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "members" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
                 所属チーム登録
               </button>
             )}
             {(userRole === "owner" || (userRole === "admin" && adminAllowedTabs.includes("org"))) && (
-              <button onClick={() => setActiveTab("org")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "org" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
+              <button onClick={() => handleTabChange("org")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "org" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
                  組織図
               </button>
             )}
             {userRole === "owner" && (
-              <button onClick={() => setActiveTab("csv")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "csv" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
+              <button onClick={() => handleTabChange("csv")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "csv" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
                 CSVインポート
               </button>
             )}
             {userRole === "owner" && (
-              <button onClick={() => setActiveTab("settings")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "settings" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
+              <button onClick={() => handleTabChange("settings")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "settings" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
                 オーナー設定
               </button>
             )}
-            {/* 💡 修正: 不要なアイコンを外しシンプルなテキスト表示に変更 */}
             {userRole === "owner" && (
-              <button onClick={() => setActiveTab("notifications")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "notifications" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
+              <button onClick={() => handleTabChange("notifications")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "notifications" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
                 通知設定
               </button>
             )}

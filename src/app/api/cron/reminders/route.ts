@@ -77,7 +77,8 @@ async function getRoomMembers(roomId: string, token: string): Promise<Record<str
 export async function GET(request: Request) {
   try {
     const { searchParams, origin } = new URL(request.url);
-    const notificationType = searchParams.get("type"); // "unverified" | "submission" | "missing_end" | null (全実行)
+    // 💡 種類を「中間(mid)」と「月末(monthend)」に分割
+    const notificationType = searchParams.get("type"); // "unverified" | "mid_submission" | "monthend_submission" | "missing_end" | null
 
     // 1. データベースから通知設定を取得
     const settingsRef = doc(db, "settings", "notifications");
@@ -118,7 +119,8 @@ export async function GET(request: Request) {
 
     // URLの置き換え用タグ定義
     const recordsUrl = `${origin}/records`;
-    const stampUrl = `${origin}/?action=end`;
+    // 👑 修正: 打刻忘れの場合は専用の「修正パラメーター」を付与してトップ画面へ誘導する
+    const stampUrl = `${origin}/?action=fix_missing_end`;
 
     const results: string[] = [];
 
@@ -171,10 +173,10 @@ export async function GET(request: Request) {
     }
 
     // ----------------------------------------------------
-    // ② 稼働記録の提出催促通知 (submission)
+    // ②-A 中間稼働記録の提出催促通知 (mid_submission)
     // ----------------------------------------------------
-    if (!notificationType || notificationType === "submission") {
-      const config = settings.submissionReminder;
+    if (!notificationType || notificationType === "mid_submission") {
+      const config = settings.midSubmissionReminder;
       if (config && config.enabled) {
         // 各チームのグループチャット全体へ一括送信
         for (const [dept, roomId] of Object.entries(teamRoomIds)) {
@@ -184,7 +186,27 @@ export async function GET(request: Request) {
             msg = msg.replace(/\[打刻画面URL\]/g, stampUrl);
 
             const sent = await sendMembersMessage(roomId, token, msg, []);
-            if (sent) results.push(`[提出催促] ${dept} チームへ一括送信完了`);
+            if (sent) results.push(`[中間提出催促] ${dept} チームへ一括送信完了`);
+          }
+        }
+      }
+    }
+
+    // ----------------------------------------------------
+    // ②-B 月末稼働記録の提出催促通知 (monthend_submission)
+    // ----------------------------------------------------
+    if (!notificationType || notificationType === "monthend_submission") {
+      const config = settings.monthEndSubmissionReminder;
+      if (config && config.enabled) {
+        // 各チームのグループチャット全体へ一括送信
+        for (const [dept, roomId] of Object.entries(teamRoomIds)) {
+          if (roomId) {
+            let msg = config.message || "";
+            msg = msg.replace(/\[自分の記録URL\]/g, recordsUrl);
+            msg = msg.replace(/\[打刻画面URL\]/g, stampUrl);
+
+            const sent = await sendMembersMessage(roomId, token, msg, []);
+            if (sent) results.push(`[月末提出催促] ${dept} チームへ一括送信完了`);
           }
         }
       }

@@ -127,20 +127,30 @@ export async function POST(request: Request) {
         // チャットルームのメンバー一覧を取得
         const roomMembers = await getRoomMembers(roomId, token);
         const toIds: string[] = [];
+        const mentionTexts: string[] = [];
 
         memberNames.forEach((name) => {
-          // アプリ側の名前からスペースを消す（例：「村上 友美」→「村上友美」）
           const cleanAppName = name.replace(/[\s\u3000]/g, "");
           
-          // 💡 【核心の修正】完全一致ではなく、「MEMBERS側の名前に、アプリ側のフルネームが含まれているか（部分一致）」で探す
+          // MEMBERS側の名前にアプリ側の名前が含まれているか部分一致で検索
           const matchedKey = Object.keys(roomMembers).find(memName => memName.includes(cleanAppName));
           
           if (matchedKey) {
             toIds.push(roomMembers[matchedKey]);
+            mentionTexts.push(`@${name}さん`);
+          } else {
+            // MEMBERS側で見つからなかった場合でも、名前テキストだけはメンションとして付与
+            mentionTexts.push(`@${name}さん`);
           }
         });
 
-        const sent = await sendMembersMessage(roomId, token, baseMessage, toIds);
+        // 💡 該当チームの対象者全員分の「@〇〇さん」を本文の最頭部に一括追加
+        let finalMessage = baseMessage;
+        if (mentionTexts.length > 0) {
+          finalMessage = `${mentionTexts.join(" ")}\n\n${baseMessage}`;
+        }
+
+        const sent = await sendMembersMessage(roomId, token, finalMessage, toIds);
         if (sent) {
           results.push(`[手動催促] ${dept} チームへ送信完了 (${toIds.length}名メンション)`);
         } else {

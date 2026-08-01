@@ -23,6 +23,7 @@ async function sendMembersMessage(
     body: formattedBody,
   };
 
+  // 複数人のIDをカンマ区切りで渡すと、MEMBERSが自動で全員分の青メンションを付けてくれる
   if (toIds.length > 0) {
     payload.to_id = toIds.join(",");
   }
@@ -127,7 +128,7 @@ export async function POST(request: Request) {
         // チャットルームのメンバー一覧を取得
         const roomMembers = await getRoomMembers(roomId, token);
         const toIds: string[] = [];
-        const mentionTexts: string[] = [];
+        const notFoundNames: string[] = []; // 💡 マッチしなかった人の名前を保持
 
         memberNames.forEach((name) => {
           const cleanAppName = name.replace(/[\s\u3000]/g, "");
@@ -136,18 +137,18 @@ export async function POST(request: Request) {
           const matchedKey = Object.keys(roomMembers).find(memName => memName.includes(cleanAppName));
           
           if (matchedKey) {
+            // 見つかったら内部IDを追加するだけ（MEMBERSが自動で青文字にしてくれる）
             toIds.push(roomMembers[matchedKey]);
-            mentionTexts.push(`@${name}さん`);
           } else {
-            // MEMBERS側で見つからなかった場合でも、名前テキストだけはメンションとして付与
-            mentionTexts.push(`@${name}さん`);
+            // 見つからなかった人を記録
+            notFoundNames.push(name);
           }
         });
 
-        // 💡 該当チームの対象者全員分の「@〇〇さん」を本文の最頭部に一括追加
+        // 💡 もしMEMBERSの部屋に見つからなかった人がいた場合のみ、本文に警告文を足す
         let finalMessage = baseMessage;
-        if (mentionTexts.length > 0) {
-          finalMessage = `${mentionTexts.join(" ")}\n\n${baseMessage}`;
+        if (notFoundNames.length > 0) {
+           finalMessage = `⚠️ [システム通知] MEMBERS名簿に以下のメンバーが見つからなかったため、メンションを付与できませんでした。\n対象者: ${notFoundNames.join(", ")}\n\n${baseMessage}`;
         }
 
         const sent = await sendMembersMessage(roomId, token, finalMessage, toIds);

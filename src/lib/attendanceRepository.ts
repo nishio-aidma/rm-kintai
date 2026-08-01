@@ -68,9 +68,10 @@ const checkTimeOverlap = async (
   newEndStr: string,
   excludeStampId?: string
 ) => {
+  const cleanEmail = email.trim().toLowerCase();
   const q = query(
     collection(db, "attendance_records"),
-    where("email", "==", email),
+    where("email", "==", cleanEmail),
     where("workDate", "==", workDate),
     where("deleted", "==", false)
   );
@@ -96,13 +97,14 @@ const checkTimeOverlap = async (
 export const attendanceRepository = {
   saveStartRecord: async (data: AttendanceRecordInput) => {
     try {
-      await checkTimeOverlap(data.email, data.workDate, data.startTime, "");
+      const cleanEmail = data.email.trim().toLowerCase();
+      await checkTimeOverlap(cleanEmail, data.workDate, data.startTime, "");
 
       const attendanceCollection = collection(db, "attendance_records");
       const newRecord = {
         userId: data.userId,
         userName: data.userName,
-        email: data.email,
+        email: cleanEmail,
         workDate: data.workDate,
         startTime: data.startTime,
         actualStartTime: data.actualStartTime || data.startTime,
@@ -134,9 +136,10 @@ export const attendanceRepository = {
       if (recordSnap.exists()) {
         const data = recordSnap.data();
         const startTimeStr = data.startTime;
+        const cleanEmail = (data.email || "").trim().toLowerCase();
         
         if (startTimeStr && endTimeStr) {
-          await checkTimeOverlap(data.email, data.workDate, startTimeStr, endTimeStr, stampId);
+          await checkTimeOverlap(cleanEmail, data.workDate, startTimeStr, endTimeStr, stampId);
 
           const startTotalMinutes = parseTimeToMinutes(startTimeStr);
           let endTotalMinutes = parseTimeToMinutes(endTimeStr);
@@ -167,7 +170,8 @@ export const attendanceRepository = {
 
   getTodayLatestRecord: async (email: string, todayStr: string) => {
     try {
-      const q = query(collection(db, "attendance_records"), where("email", "==", email), where("workDate", "==", todayStr), where("deleted", "==", false));
+      const cleanEmail = email.trim().toLowerCase();
+      const q = query(collection(db, "attendance_records"), where("email", "==", cleanEmail), where("workDate", "==", todayStr), where("deleted", "==", false));
       const querySnapshot = await getDocs(q);
       if (querySnapshot.empty) return null;
       
@@ -216,8 +220,9 @@ export const attendanceRepository = {
       if (!recordSnap.exists()) throw new Error("対象データが見つかりません。");
 
       const recordData = recordSnap.data();
+      const cleanEmail = (recordData.email || "").trim().toLowerCase();
 
-      await checkTimeOverlap(recordData.email, updatedFields.workDate, updatedFields.startTime, updatedFields.endTime, stampId);
+      await checkTimeOverlap(cleanEmail, updatedFields.workDate, updatedFields.startTime, updatedFields.endTime, stampId);
 
       let workMinutes = 0;
       let workHours = 0;
@@ -250,7 +255,8 @@ export const attendanceRepository = {
 
   createRecordByAdmin: async (email: string, userName: string, fields: { workDate: string; startTime: string; endTime: string; breakMinutes?: number }) => {
     try {
-      await checkTimeOverlap(email, fields.workDate, fields.startTime, fields.endTime);
+      const cleanEmail = email.trim().toLowerCase();
+      await checkTimeOverlap(cleanEmail, fields.workDate, fields.startTime, fields.endTime);
 
       const attendanceCollection = collection(db, "attendance_records");
       let workMinutes = 0;
@@ -270,7 +276,7 @@ export const attendanceRepository = {
       const newRecord = {
         userId: "admin_created",
         userName: userName,
-        email: email,
+        email: cleanEmail,
         workDate: fields.workDate,
         startTime: fields.startTime,
         actualStartTime: fields.startTime,
@@ -302,6 +308,7 @@ export const attendanceRepository = {
         fetchedRecords.push({ 
           id: doc.id, 
           ...data,
+          email: (data.email || "").trim().toLowerCase(),
           verified: data.verified || false
         }); 
       });
@@ -324,7 +331,7 @@ export const attendanceRepository = {
     }
   },
 
-  // 💡 【修正】CSVマスタ保存処理：既存の「固定枠」も確実に照合し、設定情報を絶対に消さないように強力保護
+  // 💡 【大改造】CSVマスタ保存処理：大文字小文字の重複ドキュメントを徹底検出して古いドキュメントを完全一掃削除！
   saveImportedMembers: async (membersList: Omit<MemberInfo, "department" | "loginEmail">[]) => {
     try {
       const batch = writeBatch(db);
@@ -332,9 +339,13 @@ export const attendanceRepository = {
       const currentSnapshot = await getDocs(collection(db, "members"));
       const newEmailSet = new Set(membersList.map(m => m.email.trim().toLowerCase()));
 
+      // 既存の全ドキュメントを走査し、CSVに含まれないドキュメントや、大文字混じりの古いドキュメントIDを確実に削除
       currentSnapshot.forEach((docSnap) => {
-        const existingEmail = docSnap.id.trim().toLowerCase();
-        if (!newEmailSet.has(existingEmail)) {
+        const rawDocId = docSnap.id;
+        const cleanDocId = rawDocId.trim().toLowerCase();
+
+        // ドキュメントIDに大文字が含まれている（例: stomiko08+RM@gmail.com）、または今回のCSVに含まれていない場合は削除
+        if (rawDocId !== cleanDocId || !newEmailSet.has(cleanDocId)) {
           batch.delete(docSnap.ref);
         }
       });
@@ -353,18 +364,18 @@ export const attendanceRepository = {
         // ① まず通常枠に設定情報があるか探す
         if (snap.exists()) {
           const d = snap.data();
-          currentDept = d.department || "";
+          currentDept = d.department !== undefined ? d.department : "";
           currentLoginEmail = d.loginEmail || "";
           currentRole = d.role || "user";
           currentOwnerProxy = d.isOwnerProxy || false;
           currentLeadingTeams = d.leadingTeams || [];
         } else {
-          // ② 通常枠になければ、オーナー固定枠にも存在しないか徹底的に探す
+          // ② 通常枠になければ、固定枠に存在しないか探す
           const fixedRef = doc(db, "fixed_members", cleanEmail);
           const fixedSnap = await getDoc(fixedRef);
           if (fixedSnap.exists()) {
             const d = fixedSnap.data();
-            currentDept = d.department || "";
+            currentDept = d.department !== undefined ? d.department : "";
             currentLoginEmail = d.loginEmail || "";
             currentRole = d.role || "user";
             currentOwnerProxy = d.isOwnerProxy || false;
@@ -384,7 +395,6 @@ export const attendanceRepository = {
           media: member.media,
           createdAtStr: member.createdAtStr,
           name: member.name,
-          // 💡 既存のチームや権限設定を最優先で引き継ぐ
           department: currentDept,
           loginEmail: currentLoginEmail,
           role: currentRole,
@@ -401,6 +411,7 @@ export const attendanceRepository = {
     }
   },
 
+  // 💡 【大改造】全メンバー取得処理：ドキュメントIDの大文字小文字をすべて小文字キーで統一し、重複を自動統合
   getAllMembers: async (): Promise<MemberInfo[]> => {
     try {
       const [membersSnapshot, fixedSnapshot] = await Promise.all([
@@ -410,50 +421,59 @@ export const attendanceRepository = {
 
       const allMembersMap = new Map<string, MemberInfo>();
 
-      membersSnapshot.forEach((doc) => {
-        const data = doc.data();
-        const email = doc.id;
-        allMembersMap.set(email, {
-          id: data.id || "",
-          managementNumber: data.managementNumber || "---",
-          lastName: data.lastName || "",
-          lastNameKana: data.lastNameKana || "",
-          firstName: data.firstName || "",
-          firstNameKana: data.firstNameKana || "",
-          email: email,
-          hourlyRate: data.hourlyRate || 0,
-          media: data.media || "",
-          createdAtStr: data.createdAtStr || "",
-          name: data.name || "",
-          department: data.department || "",
-          loginEmail: data.loginEmail || "",
-          role: data.role || "user",
-          isOwnerProxy: data.isOwnerProxy || false,
-          leadingTeams: data.leadingTeams || [],
+      membersSnapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        const rawEmail = docSnap.id;
+        const cleanEmail = rawEmail.trim().toLowerCase();
+
+        // すでに小文字キーで登録されているデータがあれば、設定値を優先引き継ぎ
+        const existing = allMembersMap.get(cleanEmail);
+
+        allMembersMap.set(cleanEmail, {
+          id: data.id || existing?.id || "",
+          managementNumber: data.managementNumber || existing?.managementNumber || "---",
+          lastName: data.lastName || existing?.lastName || "",
+          lastNameKana: data.lastNameKana || existing?.lastNameKana || "",
+          firstName: data.firstName || existing?.firstName || "",
+          firstNameKana: data.firstNameKana || existing?.firstNameKana || "",
+          email: cleanEmail,
+          hourlyRate: data.hourlyRate || existing?.hourlyRate || 0,
+          media: data.media || existing?.media || "",
+          createdAtStr: data.createdAtStr || existing?.createdAtStr || "",
+          name: data.name || existing?.name || "",
+          department: data.department !== undefined ? data.department : (existing?.department || ""),
+          loginEmail: data.loginEmail || existing?.loginEmail || "",
+          role: data.role || existing?.role || "user",
+          isOwnerProxy: data.isOwnerProxy || existing?.isOwnerProxy || false,
+          leadingTeams: data.leadingTeams || existing?.leadingTeams || [],
         });
       });
 
-      fixedSnapshot.forEach((doc) => {
-        const data = doc.data();
-        const email = doc.id;
-        allMembersMap.set(email, {
-          id: data.id || "",
-          managementNumber: data.managementNumber || "固定枠",
-          lastName: data.lastName || "",
-          lastNameKana: data.lastNameKana || "",
-          firstName: data.firstName || "",
-          firstNameKana: data.firstNameKana || "",
-          email: email,
-          hourlyRate: data.hourlyRate || 0,
-          media: data.media || "オーナー直接登録",
-          createdAtStr: data.createdAtStr || "",
-          name: data.name || "",
-          department: data.department || "",
-          loginEmail: data.loginEmail || "",
-          role: data.role || "user",
-          isOwnerProxy: data.isOwnerProxy || false,
-          leadingTeams: data.leadingTeams || [],
-        });
+      fixedSnapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        const rawEmail = docSnap.id;
+        const cleanEmail = rawEmail.trim().toLowerCase();
+
+        if (!allMembersMap.has(cleanEmail)) {
+          allMembersMap.set(cleanEmail, {
+            id: data.id || "",
+            managementNumber: data.managementNumber || "固定枠",
+            lastName: data.lastName || "",
+            lastNameKana: data.lastNameKana || "",
+            firstName: data.firstName || "",
+            firstNameKana: data.firstNameKana || "",
+            email: cleanEmail,
+            hourlyRate: data.hourlyRate || 0,
+            media: data.media || "オーナー直接登録",
+            createdAtStr: data.createdAtStr || "",
+            name: data.name || "",
+            department: data.department !== undefined ? data.department : "",
+            loginEmail: data.loginEmail || "",
+            role: data.role || "user",
+            isOwnerProxy: data.isOwnerProxy || false,
+            leadingTeams: data.leadingTeams || [],
+          });
+        }
       });
 
       return Array.from(allMembersMap.values());
@@ -462,34 +482,34 @@ export const attendanceRepository = {
     }
   },
 
-  // 💡 【修正】所属・ログインメールの保存空振り防止
+  // 💡 【大改造】所属・ログインメール保存処理：「未設定（空文字）」への戻しを確実化＆大文字混じりの古いドキュメントも完全一掃
   updateMemberFields: async (email: string, department: string, loginEmail: string) => {
     try {
       const cleanEmail = email.trim().toLowerCase();
+      const cleanDept = (department || "").trim();
       const updates = {
-        department: department,
-        loginEmail: loginEmail.trim(),
+        department: cleanDept,
+        loginEmail: loginEmail.trim().toLowerCase(),
         updatedAt: serverTimestamp()
       };
 
+      // 1. 固定枠に存在すれば更新
       const fixedRef = doc(db, "fixed_members", cleanEmail);
       const fixedSnap = await getDoc(fixedRef);
       if (fixedSnap.exists()) {
         await updateDoc(fixedRef, updates);
       }
 
+      // 2. 通常枠に保存（小文字ドキュメントに確実書き込み）
       const memberRef = doc(db, "members", cleanEmail);
-      const memberSnap = await getDoc(memberRef);
-      
-      if (memberSnap.exists()) {
-        await updateDoc(memberRef, updates);
-      } else if (fixedSnap.exists()) {
-        await setDoc(memberRef, { ...fixedSnap.data(), ...updates }, { merge: true });
-      } else {
-        // 💡 既存データが全く見つからなかった新規ユーザーでも、空振りさせずに確実に保存枠を作る
-        await setDoc(memberRef, { email: cleanEmail, ...updates }, { merge: true });
+      await setDoc(memberRef, updates, { merge: true });
+
+      // 3. 万一大文字混じりの古いドキュメントが存在する場合は消去する
+      if (email !== cleanEmail) {
+        const oldBigRef = doc(db, "members", email);
+        await deleteDoc(oldBigRef).catch(() => {});
       }
-      
+
       if (loginEmail.trim()) {
         const requestRef = doc(db, "account_requests", loginEmail.trim().toLowerCase());
         await deleteDoc(requestRef).catch(() => {});
@@ -515,13 +535,11 @@ export const attendanceRepository = {
       }
 
       const memberRef = doc(db, "members", cleanEmail);
-      const memberSnap = await getDoc(memberRef);
-      if (memberSnap.exists()) {
-        await updateDoc(memberRef, updates);
-      } else if (fixedSnap.exists()) {
-        await setDoc(memberRef, { ...fixedSnap.data(), ...updates }, { merge: true });
-      } else {
-        await setDoc(memberRef, { email: cleanEmail, ...updates }, { merge: true });
+      await setDoc(memberRef, updates, { merge: true });
+
+      if (email !== cleanEmail) {
+        const oldBigRef = doc(db, "members", email);
+        await deleteDoc(oldBigRef).catch(() => {});
       }
       return true;
     } catch (error) {
@@ -541,13 +559,11 @@ export const attendanceRepository = {
       }
 
       const memberRef = doc(db, "members", cleanEmail);
-      const memberSnap = await getDoc(memberRef);
-      if (memberSnap.exists()) {
-        await updateDoc(memberRef, updates);
-      } else if (fixedSnap.exists()) {
-        await setDoc(memberRef, { ...fixedSnap.data(), ...updates }, { merge: true });
-      } else {
-        await setDoc(memberRef, { email: cleanEmail, ...updates }, { merge: true });
+      await setDoc(memberRef, updates, { merge: true });
+
+      if (email !== cleanEmail) {
+        const oldBigRef = doc(db, "members", email);
+        await deleteDoc(oldBigRef).catch(() => {});
       }
       return true;
     } catch (error) {
@@ -567,13 +583,11 @@ export const attendanceRepository = {
       }
 
       const memberRef = doc(db, "members", cleanEmail);
-      const memberSnap = await getDoc(memberRef);
-      if (memberSnap.exists()) {
-        await updateDoc(memberRef, updates);
-      } else if (fixedSnap.exists()) {
-        await setDoc(memberRef, { ...fixedSnap.data(), ...updates }, { merge: true });
-      } else {
-        await setDoc(memberRef, { email: cleanEmail, ...updates }, { merge: true });
+      await setDoc(memberRef, updates, { merge: true });
+
+      if (email !== cleanEmail) {
+        const oldBigRef = doc(db, "members", email);
+        await deleteDoc(oldBigRef).catch(() => {});
       }
       return true;
     } catch (error) {
@@ -632,7 +646,7 @@ export const attendanceRepository = {
           lastNameKana: docData.lastNameKana || "",
           firstName: docData.firstName || "",
           firstNameKana: docData.firstNameKana || "",
-          email: snap.docs[0].id,
+          email: cleanEmail,
           hourlyRate: docData.hourlyRate || 0,
           media: docData.media || "",
           createdAtStr: docData.createdAtStr || "",
@@ -656,7 +670,7 @@ export const attendanceRepository = {
           lastNameKana: docData.lastNameKana || "",
           firstName: docData.firstName || "",
           firstNameKana: docData.firstNameKana || "",
-          email: fixedSnap.id,
+          email: cleanEmail,
           hourlyRate: docData.hourlyRate || 0,
           media: docData.media || "オーナー直接登録",
           createdAtStr: docData.createdAtStr || "",
@@ -677,9 +691,10 @@ export const attendanceRepository = {
 
   createAccountRequest: async (email: string, lastName: string, firstName: string) => {
     try {
-      const docRef = doc(db, "account_requests", email.trim().toLowerCase());
+      const cleanEmail = email.trim().toLowerCase();
+      const docRef = doc(db, "account_requests", cleanEmail);
       await setDoc(docRef, {
-        email: email.trim(),
+        email: cleanEmail,
         lastName: lastName.trim(),
         firstName: firstName.trim(),
         createdAt: serverTimestamp()

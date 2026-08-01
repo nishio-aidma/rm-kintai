@@ -10,7 +10,7 @@ import TabCsv from "./_components/TabCsv";
 import TabMembers from "./_components/TabMembers";
 import TabOrgChart from "./_components/TabOrgChart"; 
 import TabSettings from "./_components/TabSettings";
-import TabNotifications from "./_components/TabNotifications"; // 💡 追加: 通知設定タブの読み込み
+import TabNotifications from "./_components/TabNotifications";
 import EditModal from "./_components/EditModal";
 
 // 💡 実打刻時間（actualStartTime / actualEndTime）を受け取れるよう型定義を拡張
@@ -20,9 +20,9 @@ interface AdminAttendanceRecord {
   email: string;
   workDate: string;
   startTime: string;
-  actualStartTime?: string; // 👑 新設: 実際の開始打刻操作時刻
+  actualStartTime?: string;
   endTime: string;
-  actualEndTime?: string; // 👑 新設: 実際の終了打刻操作時刻
+  actualEndTime?: string;
   breakMinutes: number;
   workHours: number;
   submitted: boolean;
@@ -56,7 +56,6 @@ export default function AdminPage() {
   const [userRole, setUserRole] = useState<"admin" | "owner">("admin");
   const [myDepartment, setMyDepartment] = useState<string>("");
   
-  // 💡 notifications タブを追加
   const [activeTab, setActiveTab] = useState<"summary" | "records" | "members" | "csv" | "org" | "settings" | "notifications">("records");
 
   const [attendanceRecords, setAttendanceRecords] = useState<AdminAttendanceRecord[]>([]);
@@ -352,7 +351,7 @@ export default function AdminPage() {
           hourlyRate: Number(columns[idxRate]) || 0,
           media: columns[idxMedia] || "",
           createdAtStr: columns[idxCreatedAt] || "",
-          name: `${columns[idxLastName]}${columns[idxFirstName]}`
+          name: `${columns[idxLastName]} ${columns[idxFirstName]}`
         });
       }
     }
@@ -445,10 +444,10 @@ export default function AdminPage() {
                 オーナー設定
               </button>
             )}
-            {/* 💡 追加: オーナー権限時に通知設定タブを表示 */}
+            {/* 💡 修正: 不要なアイコンを外しシンプルなテキスト表示に変更 */}
             {userRole === "owner" && (
               <button onClick={() => setActiveTab("notifications")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "notifications" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
-                🔔 通知設定
+                通知設定
               </button>
             )}
           </div>
@@ -587,7 +586,6 @@ export default function AdminPage() {
           <TabSettings setStatusMessage={setStatusMessage} loadAllParentData={loadAllData} />
         )}
 
-        {/* 💡 追加: 通知設定画面の表示コンテンツ */}
         {userRole === "owner" && activeTab === "notifications" && (
           <TabNotifications 
             uniqueDepartments={uniqueDepartments} 

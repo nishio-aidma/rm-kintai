@@ -49,6 +49,7 @@ export interface NotificationsSettings {
   midSubmissionReminder: NotificationConfig; 
   monthEndSubmissionReminder: NotificationConfig; 
   missingEndWorkReminder: NotificationConfig;
+  manualReminder?: NotificationConfig; // 💡 追加：手動個別催促用のテンプレート文面設定
   teamRoomIds: { [teamName: string]: string };
   apiToken?: string; 
 }
@@ -331,7 +332,6 @@ export const attendanceRepository = {
     }
   },
 
-  // 💡 【大改造】CSVマスタ保存処理：大文字小文字の重複ドキュメントを徹底検出して古いドキュメントを完全一掃削除！
   saveImportedMembers: async (membersList: Omit<MemberInfo, "department" | "loginEmail">[]) => {
     try {
       const batch = writeBatch(db);
@@ -339,12 +339,10 @@ export const attendanceRepository = {
       const currentSnapshot = await getDocs(collection(db, "members"));
       const newEmailSet = new Set(membersList.map(m => m.email.trim().toLowerCase()));
 
-      // 既存の全ドキュメントを走査し、CSVに含まれないドキュメントや、大文字混じりの古いドキュメントIDを確実に削除
       currentSnapshot.forEach((docSnap) => {
         const rawDocId = docSnap.id;
         const cleanDocId = rawDocId.trim().toLowerCase();
 
-        // ドキュメントIDに大文字が含まれている（例: stomiko08+RM@gmail.com）、または今回のCSVに含まれていない場合は削除
         if (rawDocId !== cleanDocId || !newEmailSet.has(cleanDocId)) {
           batch.delete(docSnap.ref);
         }
@@ -361,7 +359,6 @@ export const attendanceRepository = {
         let currentOwnerProxy = false;
         let currentLeadingTeams: string[] = [];
 
-        // ① まず通常枠に設定情報があるか探す
         if (snap.exists()) {
           const d = snap.data();
           currentDept = d.department !== undefined ? d.department : "";
@@ -370,7 +367,6 @@ export const attendanceRepository = {
           currentOwnerProxy = d.isOwnerProxy || false;
           currentLeadingTeams = d.leadingTeams || [];
         } else {
-          // ② 通常枠になければ、固定枠に存在しないか探す
           const fixedRef = doc(db, "fixed_members", cleanEmail);
           const fixedSnap = await getDoc(fixedRef);
           if (fixedSnap.exists()) {
@@ -411,7 +407,6 @@ export const attendanceRepository = {
     }
   },
 
-  // 💡 【大改造】全メンバー取得処理：ドキュメントIDの大文字小文字をすべて小文字キーで統一し、重複を自動統合
   getAllMembers: async (): Promise<MemberInfo[]> => {
     try {
       const [membersSnapshot, fixedSnapshot] = await Promise.all([
@@ -426,7 +421,6 @@ export const attendanceRepository = {
         const rawEmail = docSnap.id;
         const cleanEmail = rawEmail.trim().toLowerCase();
 
-        // すでに小文字キーで登録されているデータがあれば、設定値を優先引き継ぎ
         const existing = allMembersMap.get(cleanEmail);
 
         allMembersMap.set(cleanEmail, {
@@ -482,7 +476,6 @@ export const attendanceRepository = {
     }
   },
 
-  // 💡 【大改造】所属・ログインメール保存処理：「未設定（空文字）」への戻しを確実化＆大文字混じりの古いドキュメントも完全一掃
   updateMemberFields: async (email: string, department: string, loginEmail: string) => {
     try {
       const cleanEmail = email.trim().toLowerCase();
@@ -493,18 +486,15 @@ export const attendanceRepository = {
         updatedAt: serverTimestamp()
       };
 
-      // 1. 固定枠に存在すれば更新
       const fixedRef = doc(db, "fixed_members", cleanEmail);
       const fixedSnap = await getDoc(fixedRef);
       if (fixedSnap.exists()) {
         await updateDoc(fixedRef, updates);
       }
 
-      // 2. 通常枠に保存（小文字ドキュメントに確実書き込み）
       const memberRef = doc(db, "members", cleanEmail);
       await setDoc(memberRef, updates, { merge: true });
 
-      // 3. 万一大文字混じりの古いドキュメントが存在する場合は消去する
       if (email !== cleanEmail) {
         const oldBigRef = doc(db, "members", email);
         await deleteDoc(oldBigRef).catch(() => {});
@@ -725,6 +715,7 @@ export const attendanceRepository = {
     }
   },
 
+  // 💡 【拡張】通知設定の取得：手動個別催促用のデフォルト文面を追加
   getNotificationSettings: async (): Promise<NotificationsSettings> => {
     try {
       const docRef = doc(db, "settings", "notifications");
@@ -752,6 +743,11 @@ export const attendanceRepository = {
             time: "21:00",
             message: "【ダコックリマインド】本日または過去の稼働記録で、業務終了時間が未登録のデータがあります。正しい終了時間を記録してください。\n[打刻画面URL]",
           },
+          manualReminder: data.manualReminder || {
+            enabled: true,
+            time: "",
+            message: "【ダコック個別催促】稼働記録が【未提出】状態です。内容を確認の上、システムより提出ボタンの押下をお願いいたします。\n[自分の記録URL]",
+          },
           teamRoomIds: data.teamRoomIds || {},
           apiToken: data.apiToken || "",
         } as NotificationsSettings;
@@ -777,6 +773,11 @@ export const attendanceRepository = {
           enabled: true,
           time: "21:00",
           message: "【ダコックリマインド】本日または過去の稼働記録で、業務終了時間が未登録のデータがあります。正しい終了時間を記録してください。\n[打刻画面URL]",
+        },
+        manualReminder: {
+          enabled: true,
+          time: "",
+          message: "【ダコック個別催促】稼働記録が【未提出】状態です。内容を確認の上、システムより提出ボタンの押下をお願いいたします。\n[自分の記録URL]",
         },
         teamRoomIds: {},
         apiToken: "",

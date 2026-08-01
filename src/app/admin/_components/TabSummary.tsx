@@ -42,18 +42,18 @@ export default function TabSummary({
   const [isNotifying, setIsNotifying] = useState(false);
   const [selectedEmails, setSelectedEmails] = useState<string[]>([]);
 
-  // 親ファイルを汚さず、このコンポーネント単体で安全にownerを識別するためのセキュリティステート
+  // 親ファイルを汚さず、このコンポーネント単体で安全にownerを識別するためのステート
   const [currentUserRole, setCurrentUserRole] = useState<"admin" | "owner">("admin");
 
-  // 一括催促通知用のリッチカスタムモーダルステート（仕様保持）
+  // 一括催促通知用のリッチカスタムモーダルステート
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalData, setModalData] = useState<{
     targetCount: number;
-    formattedMessage: string;
+    targets: { name: string; dept: string }[];
     onConfirm: () => Promise<void>;
-  }>({ targetCount: 0, formattedMessage: "", onConfirm: async () => {} });
+  }>({ targetCount: 0, targets: [], onConfirm: async () => {} });
 
-  // 画面起動時に「パソコンのメモ帳（合言葉）」をチェックしてownerかどうかを完全自動判定
+  // 画面起動時にセッションをチェックして権限を判定
   useEffect(() => {
     const sessionStr = localStorage.getItem("session");
     if (sessionStr) {
@@ -108,7 +108,7 @@ export default function TabSummary({
     ])
   ) as string[];
 
-  // 所属別モードの集計用オブジェクト（仕様保持）
+  // 所属別モードの集計用オブジェクト
   const departmentSummaries: { 
     [key: string]: { 
       memberCount: number; 
@@ -122,7 +122,6 @@ export default function TabSummary({
     } 
   } = {};
   
-  // マスタ全体の登録データから「対象稼働人数」をズレなく完全先行集計（兼任リーダー除外仕様保持）
   const allPossibleDepts = uniqueDepartments.includes("未設定") ? uniqueDepartments : [...uniqueDepartments, "未設定"];
   
   allPossibleDepts.forEach(dept => {
@@ -147,7 +146,6 @@ export default function TabSummary({
     };
   });
 
-  // 稼働実績データの合算と、チームごとの提出状況ステータスの判定
   allSummaryEmails.forEach(email => {
     const meta = defaultGetMemberMeta(email);
     const deptName = meta.department || "未設定";
@@ -204,10 +202,11 @@ export default function TabSummary({
     }
   };
 
-  // 一括催促通知送信のコアロジック（仕様保持）
+  // 💡 【大修正】一括催促通知送信：複数チーム・メンバーメンション連動ロジック
   const handleNotifySelected = async () => {
     const targetEmails = displayedEmails.filter(email => selectedEmails.includes(email));
 
+    // 未提出者のみを抽出して名前と所属チームを取得
     const unsubmittedTargets = targetEmails
       .filter(email => {
         const userRecords = (attendanceRecords as AdminAttendanceRecord[]).filter(r => r.workDate.startsWith(selectedMonth) && r.email === email);
@@ -216,7 +215,7 @@ export default function TabSummary({
       })
       .map(email => ({
         name: defaultGetMemberMeta(email).name,
-        dept: defaultGetMemberMeta(email).department
+        dept: defaultGetMemberMeta(email).department || "未設定"
       }));
 
     if (selectedEmails.length === 0) {
@@ -229,25 +228,29 @@ export default function TabSummary({
       return;
     }
 
-    const formattedMessage = `【稼働実績・未提出リマインド】\n対象月: ${selectedMonth}\n\n以下のメンバーの稼働実績が【未提出】状態です。内容を確認の上、システムから「提出」ボタンの押下をお願いいたします。\n\n${unsubmittedTargets.map(m => `・ ${m.name} さん (${m.dept})`).join("\n")}`;
-
     setModalData({
       targetCount: unsubmittedTargets.length,
-      formattedMessage: formattedMessage,
+      targets: unsubmittedTargets,
       onConfirm: async () => {
         setIsNotifying(true);
         try {
+          // 💡 裏側APIへ対象者の名前と所属チームの配列（targets）を引き渡す
           const res = await fetch("/api/admin/notify", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ message: formattedMessage })
+            body: JSON.stringify({ targets: unsubmittedTargets })
           });
 
-          if (!res.ok) throw new Error("通知通信に失敗しました。");
-          alert("🚀 MEMBER-Sへ選択された個人の未提出者一括催促通知を送信しました！");
+          const resData = await res.json();
+
+          if (!res.ok || !resData.success) {
+            throw new Error(resData.message || "通知通信に失敗しました。");
+          }
+
+          alert("🚀 MEMBERSの各該当チームチャットへ、個人メンション付きの個別催促通知を送信しました！");
           setSelectedEmails([]);
-        } catch (err) {
-          alert("エラー：通知の送信に失敗しました。裏側のルームIDやトークンをご確認ください。");
+        } catch (err: any) {
+          alert(`エラー：催促通知の送信に失敗しました。\n${err.message || ""}`);
         } finally {
           setIsNotifying(false);
         }
@@ -261,7 +264,7 @@ export default function TabSummary({
       
       <div className="flex items-center justify-between border-b border-gray-100 pb-2">
         <p className="text-[11px] text-gray-400 font-medium">
-          💡 チェックボックス（☑）で選択した未提出メンバーだけに一括で催促通知を飛ばせます。
+          💡 チェックボックス（☑）で選択した未提出メンバーだけに、それぞれの所属チームチャット宛てへ個人メンション付きで催促通知を送信できます。
         </p>
       </div>
 
@@ -324,8 +327,6 @@ export default function TabSummary({
                   <th className="px-3 py-2.5" style={{ width: currentUserRole === "owner" ? "16%" : "22%" }}>所属チーム</th>
                   <th className="text-center px-3 py-2.5" style={{ width: currentUserRole === "owner" ? "9%" : "10%" }}>出勤日数</th>
                   <th className="text-center px-3 py-2.5" style={{ width: currentUserRole === "owner" ? "9%" : "10%" }}>出勤回数</th>
-                  
-                  {/* 💡 【修正点1】「勤務時間」から「稼働時間」へ変更 */}
                   <th className="text-right px-3 py-2.5" style={{ width: currentUserRole === "owner" ? "12%" : "12%" }}>稼働時間</th>
                   
                   {currentUserRole === "owner" && <th className="text-right px-3 py-2.5" style={{ width: "9%" }}>設定時給</th>}
@@ -339,7 +340,6 @@ export default function TabSummary({
                   const totalHours = userRecords.reduce((sum, r) => sum + (r.workHours || 0), 0);
                   const roundedHours = Math.round(totalHours * 100) / 100;
                   
-                  // 💡 合計分数から「●時間●分」の形式を算出
                   const totalMinutes = userRecords.reduce((sum, r) => sum + (r.workMinutes ?? Math.round((r.workHours || 0) * 60)), 0);
                   const displayH = Math.floor(totalMinutes / 60);
                   const displayM = totalMinutes % 60;
@@ -377,8 +377,6 @@ export default function TabSummary({
                       </td>
                       <td className="text-center tabular-nums px-3 py-2.5 text-gray-700">{totalDays} 日</td>
                       <td className="text-center tabular-nums font-bold text-purple-600 px-3 py-2.5">{totalSessions} 回</td>
-                      
-                      {/* 💡 【修正点2】「●時間●分」形式で表示 */}
                       <td className="text-right tabular-nums px-3 py-2.5 text-gray-800 font-semibold whitespace-nowrap">
                         {displayH}時間{displayM}分
                       </td>
@@ -393,7 +391,7 @@ export default function TabSummary({
           </div>
         )
       ) : (
-        /* ================= 🏢 所属別モードのテーブル ================= */
+        /* 所属別モードのテーブル */
         filteredDeptKeys.length === 0 ? (
           <p className="text-center text-gray-400 py-10 font-medium">該当する所属チームはありません。</p>
         ) : (
@@ -406,8 +404,6 @@ export default function TabSummary({
                   <th className="py-2.5 text-center" style={{ width: currentUserRole === "owner" ? "12%" : "13%" }}>対象稼働人数</th>
                   <th className="py-2.5 text-center" style={{ width: currentUserRole === "owner" ? "12%" : "13%" }}>チーム総出勤日数</th>
                   <th className="py-2.5 text-center" style={{ width: currentUserRole === "owner" ? "12%" : "13%" }}>チーム総出勤回数</th>
-                  
-                  {/* 💡 【修正点3】「チーム総稼働時間」に変更 */}
                   <th className="py-2.5 text-right" style={{ width: currentUserRole === "owner" ? "13%" : "13%" }}>チーム総稼働時間</th>
                   
                   {currentUserRole === "owner" && <th className="py-2.5 text-right pr-6 text-emerald-600 font-extrabold" style={{ width: "14%" }}>チーム総報酬額（税抜）</th>}
@@ -418,7 +414,6 @@ export default function TabSummary({
                   const data = departmentSummaries[dept];
                   if (!data) return null;
 
-                  // 💡 所属別の「●時間●分」表示算出
                   const deptH = Math.floor(data.totalMinutes / 60);
                   const deptM = data.totalMinutes % 60;
 
@@ -450,7 +445,6 @@ export default function TabSummary({
                       <td className="text-center tabular-nums text-gray-500 py-2.5">{data.totalDays} 日分</td>
                       <td className="text-center tabular-nums text-purple-600 py-2.5">{data.totalSessions} 回</td>
                       
-                      {/* 💡 【修正点4】「●時間●分」表記 */}
                       <td className="text-right tabular-nums text-gray-800 font-mono py-2.5 whitespace-nowrap">
                         {deptH}時間{deptM}分
                       </td>
@@ -469,7 +463,7 @@ export default function TabSummary({
         )
       )}
 
-      {/* 一括催促用カスタムモーダル（仕様保持） */}
+      {/* 一括催促用カスタムモーダル */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[999] animate-fadeIn">
           <div className="bg-white rounded-3xl p-6 max-w-sm w-full mx-4 shadow-2xl border border-gray-100 text-center space-y-4 animate-scaleUp">
@@ -479,10 +473,15 @@ export default function TabSummary({
               </svg>
             </div>
             <div className="space-y-1">
-              <h4 className="text-base font-black text-gray-900 tracking-tight">MEMBER-S 一括リマインド通知</h4>
-              <p className="text-xs font-bold text-gray-600">選択中メンバーの中から【未提出】の {modalData.targetCount} 名へ通知を送信しますか？</p>
-              <div className="max-h-32 overflow-y-auto text-[10px] text-gray-400 font-mono bg-gray-50 p-2 rounded-xl border border-gray-100 text-left whitespace-pre-wrap mt-2">
-                {modalData.formattedMessage}
+              <h4 className="text-base font-black text-gray-900 tracking-tight">MEMBER-S 個別催促通知</h4>
+              <p className="text-xs font-bold text-gray-600">選択中メンバーの中から【未提出】の {modalData.targetCount} 名へ個別に催促メッセージを送信しますか？</p>
+              
+              <div className="max-h-32 overflow-y-auto text-[10px] text-gray-500 font-sans bg-gray-50 p-2.5 rounded-xl border border-gray-100 text-left space-y-1 mt-2">
+                <p className="font-bold text-gray-700">▼ 送信対象メンバー</p>
+                {modalData.targets.map((t, idx) => (
+                  <p key={idx} className="truncate">・ {t.name} さん ({t.dept})</p>
+                ))}
+                <p className="text-amber-600 font-bold pt-1">※通知設定で登録したテンプレート文面が個人メンション付きで送信されます。</p>
               </div>
             </div>
             <div className="flex space-x-2 pt-1">

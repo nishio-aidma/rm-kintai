@@ -15,7 +15,7 @@ export default function TabNotifications({
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [showToken, setShowToken] = useState<boolean>(false);
   
-  // 💡 中間提出と月末提出に分割した初期ステート
+  // 💡 追加：手動個別催促（manualReminder）を初期ステートに追加
   const [settings, setSettings] = useState<NotificationsSettings>({
     unverifiedReminder: {
       enabled: true,
@@ -36,6 +36,11 @@ export default function TabNotifications({
       enabled: true,
       time: "21:00",
       message: "【ダコックリマインド】本日または過去の稼働記録で、業務終了時間が未登録のデータがあります。正しい終了時間を記録してください。\n[打刻画面URL]",
+    },
+    manualReminder: {
+      enabled: true,
+      time: "", // 手動送信なので時刻は使わない
+      message: "【ダコック個別催促】稼働記録が【未提出】状態です。内容を確認の上、システムより提出ボタンの押下をお願いいたします。\n[自分の記録URL]",
     },
     teamRoomIds: {},
     apiToken: "",
@@ -71,15 +76,16 @@ export default function TabNotifications({
     }));
   };
 
+  // 💡 追加：manualReminder にもURL挿入ボタンを対応させる
   const handleInsertUrl = (
-    key: "unverifiedReminder" | "midSubmissionReminder" | "monthEndSubmissionReminder" | "missingEndWorkReminder",
+    key: "unverifiedReminder" | "midSubmissionReminder" | "monthEndSubmissionReminder" | "missingEndWorkReminder" | "manualReminder",
     urlTag: string
   ) => {
     setSettings((prev) => ({
       ...prev,
       [key]: {
-        ...prev[key],
-        message: prev[key].message + `\n${urlTag}`,
+        ...prev[key]!,
+        message: prev[key]!.message + `\n${urlTag}`,
       },
     }));
   };
@@ -197,7 +203,7 @@ export default function TabNotifications({
         </div>
       </div>
 
-      {/* ② 中間稼働記録の提出催促通知（第3・第4月曜） */}
+      {/* ② 中間稼働記録の提出催促通知 */}
       <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm space-y-4">
         <div className="flex items-center justify-between border-b border-gray-100 pb-3">
           <div>
@@ -246,7 +252,7 @@ export default function TabNotifications({
         </div>
       </div>
 
-      {/* ③ 月末稼働記録の提出催促通知（最終日） */}
+      {/* ③ 月末稼働記録の提出催促通知 */}
       <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm space-y-4">
         <div className="flex items-center justify-between border-b border-gray-100 pb-3">
           <div>
@@ -344,10 +350,49 @@ export default function TabNotifications({
         </div>
       </div>
 
-      {/* ⑤ チーム別 MEMBERS ルームID設定 */}
+      {/* 💡 ⑤ 【新設】個別催促（手動送信）のテンプレート設定 */}
+      <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm space-y-4 relative overflow-hidden">
+        <div className="absolute top-0 left-0 w-1.5 h-full bg-amber-400"></div>
+        <div className="flex items-center justify-between border-b border-gray-100 pb-3 pl-2">
+          <div>
+            <h4 className="text-sm font-bold text-gray-800">⑤ 個別催促（手動送信）のテンプレート設定</h4>
+            <p className="text-[11px] text-gray-400">稼働実績タブから、未提出のメンバーを個別に選んで送信する際のテンプレート文面です。</p>
+          </div>
+          <div className="flex items-center space-x-3">
+            <span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-md border border-amber-200">手動送信専用</span>
+          </div>
+        </div>
+
+        <div className="space-y-2 pl-2">
+          <div className="flex justify-between items-center">
+            <label className="font-bold text-gray-600">通知メッセージ本文（名前は自動でメンションが付与されます）</label>
+            <button
+              type="button"
+              onClick={() => handleInsertUrl("manualReminder", "[自分の記録URL]")}
+              className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold px-3 py-1 rounded-lg border border-emerald-200 transition-all text-[11px] flex items-center space-x-1 cursor-pointer"
+            >
+              <span>🔗 自分の記録URLを挿入</span>
+            </button>
+          </div>
+          <textarea
+            rows={4}
+            value={settings.manualReminder?.message || ""}
+            onChange={(e) =>
+              setSettings((prev) => ({
+                ...prev,
+                manualReminder: { ...prev.manualReminder!, message: e.target.value },
+              }))
+            }
+            className="w-full border border-gray-200 rounded-xl p-3 text-xs bg-gray-50/50 focus:bg-white focus:outline-none leading-relaxed font-sans"
+            placeholder="通知メッセージを入力してください"
+          />
+        </div>
+      </div>
+
+      {/* ⑥ チーム別 MEMBERS ルームID設定 */}
       <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm space-y-4">
         <div className="border-b border-gray-100 pb-3">
-          <h4 className="text-sm font-bold text-gray-800">⑤ チーム別 MEMBERS グループチャット ルームID設定</h4>
+          <h4 className="text-sm font-bold text-gray-800">⑥ チーム別 MEMBERS グループチャット ルームID設定</h4>
           <p className="text-[11px] text-gray-400">
             登録されている各チームのMEMBERSグループチャットの「6桁のルームID」を入力してください。
           </p>

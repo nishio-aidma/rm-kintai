@@ -47,7 +47,6 @@ function splitCSVLine(line: string): string[] {
   return result;
 }
 
-// 💡 タブの型を定義
 type AdminTabType = "summary" | "records" | "members" | "csv" | "org" | "settings" | "notifications";
 
 export default function AdminPage() {
@@ -129,18 +128,16 @@ export default function AdminPage() {
   useEffect(() => {
     const checkAdminAuth = async () => {
       const sessionStr = localStorage.getItem("session");
-      // 💡 ブラウザに記憶されているタブを取得
       const savedTab = sessionStorage.getItem("adminActiveTab") as AdminTabType | null;
       
       if (sessionStr) {
         try {
           const session = JSON.parse(sessionStr);
-          const email = session.email || "";
+          const email = (session.email || "").trim().toLowerCase();
           setAdminEmail(email);
 
           if (email === "nishio@aidma-hd.jp") {
             setUserRole("owner");
-            // 💡 記憶があればそれを、無ければデフォルトを開く
             setActiveTab(savedTab || "summary");
           } else {
             const meta = await attendanceRepository.getMemberByEmail(email);
@@ -174,17 +171,22 @@ export default function AdminPage() {
     checkAdminAuth();
   }, [router]);
 
-  // 💡 タブを切り替えた時に、ブラウザの記憶（sessionStorage）にも保存する関数
   const handleTabChange = (tab: AdminTabType) => {
     setActiveTab(tab);
     sessionStorage.setItem("adminActiveTab", tab);
   };
 
+  // 💡 【核心の修正】大文字小文字・スペースの違いを完全に吸収してメンバー情報を検索する
   const getMemberMeta = (email: string) => {
-    const matched = members.find(m => m.email === email || m.loginEmail === email);
+    const cleanEmail = (email || "").trim().toLowerCase();
+    const matched = members.find(m => 
+      (m.email || "").trim().toLowerCase() === cleanEmail || 
+      (m.loginEmail || "").trim().toLowerCase() === cleanEmail
+    );
+
     return {
       id: matched ? matched.id : "",
-      name: matched ? matched.name : email.split("@")[0],
+      name: matched ? matched.name : (cleanEmail ? cleanEmail.split("@")[0] : "---"),
       managementNumber: matched ? matched.managementNumber : "---",
       hourlyRate: matched ? matched.hourlyRate : 0,
       department: matched ? matched.department : "未設定"
@@ -201,10 +203,11 @@ export default function AdminPage() {
   const handleSaveDepartment = async (email: string, selectedDept: string) => {
     try {
       setStatusMessage("所属チーム情報を更新中...");
-      const targetMember = members.find(m => m.email === email);
+      const cleanEmail = email.trim().toLowerCase();
+      const targetMember = members.find(m => m.email.trim().toLowerCase() === cleanEmail);
       const currentLoginEmail = targetMember?.loginEmail || "";
 
-      await attendanceRepository.updateMemberFields(email, selectedDept, currentLoginEmail);
+      await attendanceRepository.updateMemberFields(cleanEmail, selectedDept, currentLoginEmail);
       
       setEditingDeptEmail(null);
       setStatusMessage("所属チームを正常に更新しました！");
@@ -228,9 +231,10 @@ export default function AdminPage() {
     const summaryMap: { [email: string]: { hours: number; days: Set<string> } } = {};
     
     monthFiltered.forEach(r => {
-      if (!summaryMap[r.email]) summaryMap[r.email] = { hours: 0, days: new Set() };
-      summaryMap[r.email].hours += r.workHours || 0;
-      summaryMap[r.email].days.add(r.workDate);
+      const cleanEmail = (r.email || "").trim().toLowerCase();
+      if (!summaryMap[cleanEmail]) summaryMap[cleanEmail] = { hours: 0, days: new Set() };
+      summaryMap[cleanEmail].hours += r.workHours || 0;
+      summaryMap[cleanEmail].days.add(r.workDate);
     });
 
     const line1 = ["報酬"];
@@ -358,7 +362,7 @@ export default function AdminPage() {
           lastNameKana: columns[idxLastNameKana] || "",
           firstName: columns[idxFirstName] || "",
           firstNameKana: columns[idxFirstNameKana] || "",
-          email: email, 
+          email: email.trim().toLowerCase(), 
           hourlyRate: Number(columns[idxRate]) || 0,
           media: columns[idxMedia] || "",
           createdAtStr: columns[idxCreatedAt] || "",
@@ -389,7 +393,7 @@ export default function AdminPage() {
     const matchesMonth = r.workDate.startsWith(selectedMonth);
     if (!matchesMonth) return false;
 
-    const matchesEmail = filterEmail === "all" ? true : r.email === filterEmail;
+    const matchesEmail = filterEmail === "all" ? true : r.email.trim().toLowerCase() === filterEmail.trim().toLowerCase();
     if (!matchesEmail) return false;
 
     if (startDate && r.workDate < startDate) return false;
@@ -442,7 +446,7 @@ export default function AdminPage() {
             )}
             {(userRole === "owner" || (userRole === "admin" && adminAllowedTabs.includes("org"))) && (
               <button onClick={() => handleTabChange("org")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "org" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
-                 組織図
+                組織図
               </button>
             )}
             {userRole === "owner" && (
@@ -604,7 +608,6 @@ export default function AdminPage() {
         )}
       </main>
 
-      {/* 💡 EditModal への受け渡し */}
       {showEditModal && editingRecord && (
         <EditModal 
           editingRecord={editingRecord} 

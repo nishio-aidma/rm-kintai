@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { auth } from "@/lib/firebase";
 import { attendanceRepository } from "@/lib/attendanceRepository";
@@ -74,7 +74,8 @@ function ScrollWheelPicker({
   );
 }
 
-export default function DashboardPage() {
+// 💡 useSearchParams を利用するダッシュボード画面本体
+function DashboardContent() {
   const router = useRouter();
   const searchParams = useSearchParams(); // 💡 URLパラメータを取得するためのフック
 
@@ -219,7 +220,7 @@ export default function DashboardPage() {
     };
 
     checkLoginAndLoadData();
-  }, [router, searchParams]); // 💡 searchParams を依存配列に追加
+  }, [router, searchParams]);
 
   const formatTime = (date: Date) => date.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   const formatDate = (date: Date) => date.toLocaleDateString("ja-JP", { year: "numeric", month: "long", day: "numeric", weekday: "long" });
@@ -736,5 +737,14 @@ export default function DashboardPage() {
       )}
 
     </div>
+  );
+}
+
+// 💡 Next.jsのビルドエラーを防ぐため、Suspenseで全体を包み込んでエクスポート
+export default function DashboardPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-gray-50 flex items-center justify-center font-bold text-gray-400">画面を読み込み中...</div>}>
+      <DashboardContent />
+    </Suspense>
   );
 }

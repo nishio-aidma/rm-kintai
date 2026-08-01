@@ -6,10 +6,10 @@ export interface AttendanceRecordInput {
   userName: string;
   email: string;
   workDate: string;
-  startTime: string; // ユーザーが選択した開始時間 (例: "09:00")
-  actualStartTime?: string; // 👑 実際に打刻ボタンを押したシステム操作時刻 (例: "09:15")
+  startTime: string; 
+  actualStartTime?: string; 
   endTime?: string;
-  breakMinutes?: number; // 💡 互換性維持のためオプショナル化
+  breakMinutes?: number; 
 }
 
 export interface MemberInfo {
@@ -27,8 +27,8 @@ export interface MemberInfo {
   department: string;
   loginEmail?: string;
   role?: "user" | "admin";
-  isOwnerProxy?: boolean; // 👑 owner代理フラグ
-  leadingTeams?: string[]; // 👑 リーダーを担当するチーム名の配列
+  isOwnerProxy?: boolean; 
+  leadingTeams?: string[]; 
 }
 
 export interface AccountRequest {
@@ -38,7 +38,6 @@ export interface AccountRequest {
   createdAt: any;
 }
 
-// 💡 通知設定用の型定義
 export interface NotificationConfig {
   enabled: boolean;
   time: string;
@@ -47,14 +46,13 @@ export interface NotificationConfig {
 
 export interface NotificationsSettings {
   unverifiedReminder: NotificationConfig;
-  midSubmissionReminder: NotificationConfig; // 💡 追加：中間提出催促（第3・第4月曜）
-  monthEndSubmissionReminder: NotificationConfig; // 💡 追加：月末提出催促（最終日）
+  midSubmissionReminder: NotificationConfig; 
+  monthEndSubmissionReminder: NotificationConfig; 
   missingEndWorkReminder: NotificationConfig;
   teamRoomIds: { [teamName: string]: string };
-  apiToken?: string; // 💡 MEMBERS APIのトークンを保存する枠
+  apiToken?: string; 
 }
 
-// 💡 秒数を一切無視し、時刻文字列から「時」と「分」だけを取り出して総分数に変換するヘルパー関数
 const parseTimeToMinutes = (timeStr: string): number => {
   if (!timeStr) return 0;
   const parts = timeStr.split(":").map(Number);
@@ -63,7 +61,6 @@ const parseTimeToMinutes = (timeStr: string): number => {
   return h * 60 + m;
 };
 
-// 🔒 👑 同日内で勤務時間が重複していないかを厳密チェックする共通関数
 const checkTimeOverlap = async (
   email: string,
   workDate: string,
@@ -97,7 +94,6 @@ const checkTimeOverlap = async (
 };
 
 export const attendanceRepository = {
-  // 1. 業務開始データを保存
   saveStartRecord: async (data: AttendanceRecordInput) => {
     try {
       await checkTimeOverlap(data.email, data.workDate, data.startTime, "");
@@ -128,7 +124,6 @@ export const attendanceRepository = {
     }
   },
 
-  // 2. 業務終了時刻の保存
   saveEndRecord: async (stampId: string, endTimeStr: string, breakMinutes?: number, actualEndTimeStr?: string) => {
     try {
       const recordRef = doc(db, "attendance_records", stampId);
@@ -170,7 +165,6 @@ export const attendanceRepository = {
     }
   },
 
-  // 3. 今日の打刻データを取得
   getTodayLatestRecord: async (email: string, todayStr: string) => {
     try {
       const q = query(collection(db, "attendance_records"), where("email", "==", email), where("workDate", "==", todayStr), where("deleted", "==", false));
@@ -191,7 +185,6 @@ export const attendanceRepository = {
     }
   },
 
-  // 4. 提出ロック
   submitSelectedRecords: async (stampIds: string[]) => {
     try {
       const batch = writeBatch(db);
@@ -206,7 +199,6 @@ export const attendanceRepository = {
     }
   },
 
-  // 5. 削除
   deleteRecord: async (stampId: string) => {
     try {
       const recordRef = doc(db, "attendance_records", stampId);
@@ -217,7 +209,6 @@ export const attendanceRepository = {
     }
   },
 
-  // 6. 管理者が打刻生データを手動修正
   updateRecordByAdmin: async (stampId: string, updatedFields: { workDate: string; startTime: string; endTime: string; breakMinutes?: number }) => {
     try {
       const recordRef = doc(db, "attendance_records", stampId);
@@ -257,7 +248,6 @@ export const attendanceRepository = {
     }
   },
 
-  // 7. 管理者が1から打刻レコードを手動作成
   createRecordByAdmin: async (email: string, userName: string, fields: { workDate: string; startTime: string; endTime: string; breakMinutes?: number }) => {
     try {
       await checkTimeOverlap(email, fields.workDate, fields.startTime, fields.endTime);
@@ -302,7 +292,6 @@ export const attendanceRepository = {
     }
   },
 
-  // 8. 管理者用：全打刻データの取得
   getAllRecordsForAdmin: async () => {
     try {
       const q = query(collection(db, "attendance_records"), where("deleted", "==", false));
@@ -322,7 +311,6 @@ export const attendanceRepository = {
     }
   },
 
-  // 確認ステート更新
   updateRecordVerification: async (stampId: string, isVerified: boolean) => {
     try {
       const recordRef = doc(db, "attendance_records", stampId);
@@ -336,7 +324,7 @@ export const attendanceRepository = {
     }
   },
 
-  // 9. CSVメンバーマスタ保存
+  // 💡 【修正】CSVマスタ保存処理：既存の「固定枠」も確実に照合し、設定情報を絶対に消さないように強力保護
   saveImportedMembers: async (membersList: Omit<MemberInfo, "department" | "loginEmail">[]) => {
     try {
       const batch = writeBatch(db);
@@ -362,6 +350,7 @@ export const attendanceRepository = {
         let currentOwnerProxy = false;
         let currentLeadingTeams: string[] = [];
 
+        // ① まず通常枠に設定情報があるか探す
         if (snap.exists()) {
           const d = snap.data();
           currentDept = d.department || "";
@@ -369,6 +358,18 @@ export const attendanceRepository = {
           currentRole = d.role || "user";
           currentOwnerProxy = d.isOwnerProxy || false;
           currentLeadingTeams = d.leadingTeams || [];
+        } else {
+          // ② 通常枠になければ、オーナー固定枠にも存在しないか徹底的に探す
+          const fixedRef = doc(db, "fixed_members", cleanEmail);
+          const fixedSnap = await getDoc(fixedRef);
+          if (fixedSnap.exists()) {
+            const d = fixedSnap.data();
+            currentDept = d.department || "";
+            currentLoginEmail = d.loginEmail || "";
+            currentRole = d.role || "user";
+            currentOwnerProxy = d.isOwnerProxy || false;
+            currentLeadingTeams = d.leadingTeams || [];
+          }
         }
         
         batch.set(memberRef, {
@@ -383,6 +384,7 @@ export const attendanceRepository = {
           media: member.media,
           createdAtStr: member.createdAtStr,
           name: member.name,
+          // 💡 既存のチームや権限設定を最優先で引き継ぐ
           department: currentDept,
           loginEmail: currentLoginEmail,
           role: currentRole,
@@ -399,7 +401,6 @@ export const attendanceRepository = {
     }
   },
 
-  // 10. 通常メンバーマスタ ＋ オーナー固定メンバー枠の合流配給
   getAllMembers: async (): Promise<MemberInfo[]> => {
     try {
       const [membersSnapshot, fixedSnapshot] = await Promise.all([
@@ -461,7 +462,7 @@ export const attendanceRepository = {
     }
   },
 
-  // 11. 所属・ログインメール更新
+  // 💡 【修正】所属・ログインメールの保存空振り防止
   updateMemberFields: async (email: string, department: string, loginEmail: string) => {
     try {
       const cleanEmail = email.trim().toLowerCase();
@@ -479,10 +480,14 @@ export const attendanceRepository = {
 
       const memberRef = doc(db, "members", cleanEmail);
       const memberSnap = await getDoc(memberRef);
+      
       if (memberSnap.exists()) {
         await updateDoc(memberRef, updates);
       } else if (fixedSnap.exists()) {
         await setDoc(memberRef, { ...fixedSnap.data(), ...updates }, { merge: true });
+      } else {
+        // 💡 既存データが全く見つからなかった新規ユーザーでも、空振りさせずに確実に保存枠を作る
+        await setDoc(memberRef, { email: cleanEmail, ...updates }, { merge: true });
       }
       
       if (loginEmail.trim()) {
@@ -495,7 +500,6 @@ export const attendanceRepository = {
     }
   },
 
-  // 12. 権限トグル
   updateMemberRole: async (email: string, newRole: "user" | "admin") => {
     try {
       const cleanEmail = email.trim().toLowerCase();
@@ -516,6 +520,8 @@ export const attendanceRepository = {
         await updateDoc(memberRef, updates);
       } else if (fixedSnap.exists()) {
         await setDoc(memberRef, { ...fixedSnap.data(), ...updates }, { merge: true });
+      } else {
+        await setDoc(memberRef, { email: cleanEmail, ...updates }, { merge: true });
       }
       return true;
     } catch (error) {
@@ -523,7 +529,6 @@ export const attendanceRepository = {
     }
   },
 
-  // オーナー代理権限切り替え
   updateMemberOwnerProxy: async (email: string, isProxy: boolean) => {
     try {
       const cleanEmail = email.trim().toLowerCase();
@@ -541,6 +546,8 @@ export const attendanceRepository = {
         await updateDoc(memberRef, updates);
       } else if (fixedSnap.exists()) {
         await setDoc(memberRef, { ...fixedSnap.data(), ...updates }, { merge: true });
+      } else {
+        await setDoc(memberRef, { email: cleanEmail, ...updates }, { merge: true });
       }
       return true;
     } catch (error) {
@@ -548,7 +555,6 @@ export const attendanceRepository = {
     }
   },
 
-  // 兼任リーダーアサイン
   updateMemberLeadingTeams: async (email: string, leadingTeams: string[]) => {
     try {
       const cleanEmail = email.trim().toLowerCase();
@@ -566,6 +572,8 @@ export const attendanceRepository = {
         await updateDoc(memberRef, updates);
       } else if (fixedSnap.exists()) {
         await setDoc(memberRef, { ...fixedSnap.data(), ...updates }, { merge: true });
+      } else {
+        await setDoc(memberRef, { email: cleanEmail, ...updates }, { merge: true });
       }
       return true;
     } catch (error) {
@@ -573,7 +581,6 @@ export const attendanceRepository = {
     }
   },
 
-  // 子チームデータの保存
   saveSubTeams: async (parentDept: string, subTeamsList: any[]) => {
     try {
       const docRef = doc(db, "org_sub_teams", parentDept);
@@ -587,7 +594,6 @@ export const attendanceRepository = {
     }
   },
 
-  // 子チームデータの取得
   getSubTeams: async (parentDept: string) => {
     try {
       const q = query(
@@ -611,7 +617,6 @@ export const attendanceRepository = {
     }
   },
 
-  // 13. ログイン認証用の逆引き処理
   getMemberByEmail: async (loginEmail: string): Promise<MemberInfo | null> => {
     try {
       const cleanEmail = loginEmail.trim().toLowerCase();
@@ -670,7 +675,6 @@ export const attendanceRepository = {
     }
   },
 
-  // 申請作成
   createAccountRequest: async (email: string, lastName: string, firstName: string) => {
     try {
       const docRef = doc(db, "account_requests", email.trim().toLowerCase());
@@ -687,7 +691,6 @@ export const attendanceRepository = {
     }
   },
 
-  // 申請一覧取得
   getAccountRequests: async (): Promise<AccountRequest[]> => {
     try {
       const snap = await getDocs(collection(db, "account_requests"));
@@ -707,14 +710,12 @@ export const attendanceRepository = {
     }
   },
 
-  // 💡 【更新】通知設定の取得（中間と月末の2つに初期値を拡張）
   getNotificationSettings: async (): Promise<NotificationsSettings> => {
     try {
       const docRef = doc(db, "settings", "notifications");
       const snap = await getDoc(docRef);
       if (snap.exists()) {
         const data = snap.data();
-        // 既存データがある場合でも補完して返す
         return {
           unverifiedReminder: data.unverifiedReminder || {
             enabled: true,
@@ -770,7 +771,6 @@ export const attendanceRepository = {
     }
   },
 
-  // 💡 【更新】通知設定の保存
   saveNotificationSettings: async (settingsData: NotificationsSettings) => {
     try {
       const docRef = doc(db, "settings", "notifications");
@@ -784,7 +784,6 @@ export const attendanceRepository = {
     }
   },
 
-  // 設定情報のロード
   getDashboardSettings: async () => {
     try {
       const docRef = doc(db, "settings", "dashboard");
@@ -798,7 +797,6 @@ export const attendanceRepository = {
     }
   },
 
-  // 設定情報のセーブ
   saveDashboardSettings: async (message: string) => {
     try {
       const docRef = doc(db, "settings", "dashboard");

@@ -38,6 +38,21 @@ export interface AccountRequest {
   createdAt: any;
 }
 
+// 💡 通知設定用の型定義
+export interface NotificationConfig {
+  enabled: boolean;
+  time: string;
+  message: string;
+}
+
+export interface NotificationsSettings {
+  unverifiedReminder: NotificationConfig;
+  submissionReminder: NotificationConfig;
+  missingEndWorkReminder: NotificationConfig;
+  teamRoomIds: { [teamName: string]: string };
+  apiToken?: string; // 💡 追加: MEMBERS APIのトークンを保存する枠
+}
+
 // 💡 秒数を一切無視し、時刻文字列から「時」と「分」だけを取り出して総分数に変換するヘルパー関数
 const parseTimeToMinutes = (timeStr: string): number => {
   if (!timeStr) return 0;
@@ -698,6 +713,53 @@ export const attendanceRepository = {
       return requests;
     } catch (error) {
       return [];
+    }
+  },
+
+  // 💡 【新規】通知設定の取得
+  getNotificationSettings: async (): Promise<NotificationsSettings> => {
+    try {
+      const docRef = doc(db, "settings", "notifications");
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        return snap.data() as NotificationsSettings;
+      }
+      // 💡 データがない場合のデフォルト値に apiToken を追加
+      return {
+        unverifiedReminder: {
+          enabled: true,
+          time: "12:00",
+          message: "【ダコックリマインド】前日までの稼働記録で、未確認のデータがあります。内容をご確認の上、確認を完了させてください。\n[自分の記録URL]",
+        },
+        submissionReminder: {
+          enabled: true,
+          time: "15:00",
+          message: "【ダコックリマインド】最終稼働日となりました。必ずすべての稼働記録を確認し、稼働記録の提出をお願いします。\n[自分の記録URL]",
+        },
+        missingEndWorkReminder: {
+          enabled: true,
+          time: "21:00",
+          message: "【ダコックリマインド】本日または過去の稼働記録で、業務終了時間が未登録のデータがあります。正しい終了時間を記録してください。\n[打刻画面URL]",
+        },
+        teamRoomIds: {},
+        apiToken: "",
+      };
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  // 💡 【新規】通知設定の保存
+  saveNotificationSettings: async (settingsData: NotificationsSettings) => {
+    try {
+      const docRef = doc(db, "settings", "notifications");
+      await setDoc(docRef, {
+        ...settingsData,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+      return true;
+    } catch (error) {
+      throw error;
     }
   },
 

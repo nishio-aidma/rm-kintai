@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { auth } from "@/lib/firebase";
 import { attendanceRepository } from "@/lib/attendanceRepository";
 
-// 🍏 ドラムロール選択UIコンポーネント（引き戻しバグ防止機構付き）
+// 🍏 ドラムロール選択UIコンポーネント
 function ScrollWheelPicker({
   options,
   value,
@@ -50,10 +50,7 @@ function ScrollWheelPicker({
 
   return (
     <div className="relative h-[160px] w-20 overflow-hidden select-none bg-gray-50/50 rounded-2xl border border-gray-100">
-      {/* 中央のAppleグリーン選択枠 */}
       <div className="absolute top-[60px] left-1 right-1 h-[40px] bg-[#34C759]/15 border-2 border-[#34C759] rounded-xl pointer-events-none z-0" />
-
-      {/* スクロールする数字一覧 */}
       <div
         ref={containerRef}
         onScroll={handleScroll}
@@ -79,6 +76,8 @@ function ScrollWheelPicker({
 
 export default function DashboardPage() {
   const router = useRouter();
+  const searchParams = useSearchParams(); // 💡 URLパラメータを取得するためのフック
+
   const [currentTime, setCurrentTime] = useState(new Date());
   const [isMounted, setIsMounted] = useState(false);
   
@@ -92,19 +91,20 @@ export default function DashboardPage() {
   const [currentStampId, setCurrentStampId] = useState<string | null>(null);
   const [currentStartTimeStr, setCurrentStartTimeStr] = useState<string>("");
 
-  // 業務開始の時間選択モーダル制御
   const [showStartModal, setShowStartModal] = useState<boolean>(false);
   const [showStartConfirmModal, setShowStartConfirmModal] = useState<boolean>(false);
   const [startHourInput, setStartHourInput] = useState<string>("09");
   const [startMinuteInput, setStartMinuteInput] = useState<string>("00");
 
-  // 業務終了の時間選択モーダル制御（休憩関連ステートを削除）
   const [showEndModal, setShowEndModal] = useState<boolean>(false);
   const [showEndConfirmModal, setShowEndConfirmModal] = useState<boolean>(false);
   const [endHourInput, setEndHourInput] = useState<string>("18");
   const [endMinuteInput, setEndMinuteInput] = useState<string>("00");
 
   const [customFooterMessage, setCustomFooterMessage] = useState<string>("");
+
+  // 💡 未終了記録の警告モーダル表示用ステート
+  const [showUnfinishedWarning, setShowUnfinishedWarning] = useState<boolean>(false);
 
   const hoursOptions = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
   const minutesOptions = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'));
@@ -163,6 +163,30 @@ export default function DashboardPage() {
             setWorkState("not_started");
           }
 
+          // 💡 過去の「未終了」データがないかチェックする
+          const db = require("@/lib/firebase").db;
+          const { collection, query, where, getDocs } = require("firebase/firestore");
+          const q = query(
+            collection(db, "attendance_records"),
+            where("email", "==", email),
+            where("endTime", "==", ""),
+            where("deleted", "==", false)
+          );
+          const querySnapshot = await getDocs(q);
+          
+          let hasOldUnfinished = false;
+          querySnapshot.forEach((doc: any) => {
+            const data = doc.data();
+            // 今日以外の未終了データがあればフラグを立てる
+            if (data.workDate !== todayStr) {
+              hasOldUnfinished = true;
+            }
+          });
+
+          if (hasOldUnfinished) {
+            setShowUnfinishedWarning(true);
+          }
+
           let finalRole: "user" | "admin" | "owner" = "user";
           if (email === "nishio@aidma-hd.jp") {
             finalRole = "owner";
@@ -180,6 +204,11 @@ export default function DashboardPage() {
           session.cachedMessage = finalMessage;
           localStorage.setItem("session", JSON.stringify(session));
 
+          // 💡 URLパラメータの確認 (action=end なら終了モーダルを自動で開く)
+          if (searchParams?.get("action") === "end") {
+            handleOpenEndModal();
+          }
+
         } catch (error) {
           console.error("ログイン情報の読み込みに失敗しました:", error);
           router.push("/login");
@@ -190,7 +219,7 @@ export default function DashboardPage() {
     };
 
     checkLoginAndLoadData();
-  }, [router]);
+  }, [router, searchParams]); // 💡 searchParams を依存配列に追加
 
   const formatTime = (date: Date) => date.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   const formatDate = (date: Date) => date.toLocaleDateString("ja-JP", { year: "numeric", month: "long", day: "numeric", weekday: "long" });
@@ -270,7 +299,6 @@ export default function DashboardPage() {
         workDate: todayStr,
         startTime: selectedTimeStr,
         actualStartTime: actualTimeStr,
-        breakMinutes: 0,
       });
 
       setCurrentStampId(stampId);
@@ -328,7 +356,6 @@ export default function DashboardPage() {
       setStatusMessage("業務終了データを送信中...");
       setShowEndConfirmModal(false);
 
-      // 💡 リポジトリ改修までの安全繋ぎとして、休憩時間には0を送信します
       await attendanceRepository.saveEndRecord(
         currentStampId, 
         selectedEndTimeStr, 
@@ -340,6 +367,12 @@ export default function DashboardPage() {
       setCurrentStampId(null);
       setCurrentStartTimeStr("");
       setStatusMessage(`お疲れ様でした！本日の業務終了を記録しました。`);
+      
+      // 💡 もしURLパラメータに ?action=end があった場合は、完了後にURLを綺麗にする
+      if (searchParams?.get("action") === "end") {
+        router.replace("/");
+      }
+
       setTimeout(() => setStatusMessage(null), 4000);
     } catch (error: any) {
       const errorMsg = error?.message || "エラー：業務終了データの保存に失敗しました。";
@@ -471,7 +504,6 @@ export default function DashboardPage() {
                       type="button"
                       onClick={() => adjustHour(startHourInput, 1, setStartHourInput)}
                       className="w-7 h-7 bg-gray-100 hover:bg-[#34C759] text-gray-600 hover:text-white border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center shadow-sm active:scale-95 transition-all cursor-pointer"
-                      title="1時間進める"
                     >
                       ▲
                     </button>
@@ -479,32 +511,22 @@ export default function DashboardPage() {
                       type="button"
                       onClick={() => adjustHour(startHourInput, -1, setStartHourInput)}
                       className="w-7 h-7 bg-gray-100 hover:bg-[#34C759] text-gray-600 hover:text-white border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center shadow-sm active:scale-95 transition-all cursor-pointer"
-                      title="1時間戻す"
                     >
                       ▼
                     </button>
                   </div>
-                  <ScrollWheelPicker
-                    options={hoursOptions}
-                    value={startHourInput}
-                    onChange={setStartHourInput}
-                  />
+                  <ScrollWheelPicker options={hoursOptions} value={startHourInput} onChange={setStartHourInput} />
                 </div>
                 
                 <span className="text-2xl font-black text-gray-800 pb-1 font-mono">:</span>
 
                 <div className="flex items-center space-x-1.5">
-                  <ScrollWheelPicker
-                    options={minutesOptions}
-                    value={startMinuteInput}
-                    onChange={setStartMinuteInput}
-                  />
+                  <ScrollWheelPicker options={minutesOptions} value={startMinuteInput} onChange={setStartMinuteInput} />
                   <div className="flex flex-col space-y-1">
                     <button
                       type="button"
                       onClick={() => adjustMinute(startMinuteInput, 1, setStartMinuteInput)}
                       className="w-7 h-7 bg-gray-100 hover:bg-[#34C759] text-gray-600 hover:text-white border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center shadow-sm active:scale-95 transition-all cursor-pointer"
-                      title="1分進める"
                     >
                       ▲
                     </button>
@@ -512,7 +534,6 @@ export default function DashboardPage() {
                       type="button"
                       onClick={() => adjustMinute(startMinuteInput, -1, setStartMinuteInput)}
                       className="w-7 h-7 bg-gray-100 hover:bg-[#34C759] text-gray-600 hover:text-white border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center shadow-sm active:scale-95 transition-all cursor-pointer"
-                      title="1分戻す"
                     >
                       ▼
                     </button>
@@ -570,7 +591,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* ⬛ 3. 業務終了モーダル (休憩選択UIを完全排除) */}
+      {/* ⬛ 3. 業務終了モーダル */}
       {showEndModal && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn">
           <div className="bg-white rounded-[32px] p-8 max-w-sm w-full mx-4 shadow-xl text-center space-y-6">
@@ -588,7 +609,6 @@ export default function DashboardPage() {
                         type="button"
                         onClick={() => adjustHour(endHourInput, 1, setEndHourInput)}
                         className="w-7 h-7 bg-gray-100 hover:bg-[#34C759] text-gray-600 hover:text-white border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center shadow-sm active:scale-95 transition-all cursor-pointer"
-                        title="1時間進める"
                       >
                         ▲
                       </button>
@@ -596,32 +616,22 @@ export default function DashboardPage() {
                         type="button"
                         onClick={() => adjustHour(endHourInput, -1, setEndHourInput)}
                         className="w-7 h-7 bg-gray-100 hover:bg-[#34C759] text-gray-600 hover:text-white border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center shadow-sm active:scale-95 transition-all cursor-pointer"
-                        title="1時間戻す"
                       >
                         ▼
                       </button>
                     </div>
-                    <ScrollWheelPicker
-                      options={hoursOptions}
-                      value={endHourInput}
-                      onChange={setEndHourInput}
-                    />
+                    <ScrollWheelPicker options={hoursOptions} value={endHourInput} onChange={setEndHourInput} />
                   </div>
 
                   <span className="text-2xl font-black text-gray-800 pb-1 font-mono">:</span>
 
                   <div className="flex items-center space-x-1.5">
-                    <ScrollWheelPicker
-                      options={minutesOptions}
-                      value={endMinuteInput}
-                      onChange={setEndMinuteInput}
-                    />
+                    <ScrollWheelPicker options={minutesOptions} value={endMinuteInput} onChange={setEndMinuteInput} />
                     <div className="flex flex-col space-y-1">
                       <button
                         type="button"
                         onClick={() => adjustMinute(endMinuteInput, 1, setEndMinuteInput)}
                         className="w-7 h-7 bg-gray-100 hover:bg-[#34C759] text-gray-600 hover:text-white border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center shadow-sm active:scale-95 transition-all cursor-pointer"
-                        title="1分進める"
                       >
                         ▲
                       </button>
@@ -629,7 +639,6 @@ export default function DashboardPage() {
                         type="button"
                         onClick={() => adjustMinute(endMinuteInput, -1, setEndMinuteInput)}
                         className="w-7 h-7 bg-gray-100 hover:bg-[#34C759] text-gray-600 hover:text-white border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center shadow-sm active:scale-95 transition-all cursor-pointer"
-                        title="1分戻す"
                       >
                         ▼
                       </button>
@@ -657,24 +666,30 @@ export default function DashboardPage() {
             </div>
 
             <div className="flex space-x-3 pt-2">
-              <button onClick={() => setShowEndModal(false)} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-600 font-semibold py-3.5 rounded-xl text-sm transition-all cursor-pointer">キャンセル</button>
+              <button 
+                onClick={() => {
+                  setShowEndModal(false);
+                  if (searchParams?.get("action") === "end") router.replace("/"); // パラメータがあれば綺麗にする
+                }} 
+                className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-600 font-semibold py-3.5 rounded-xl text-sm transition-all cursor-pointer"
+              >
+                キャンセル
+              </button>
               <button onClick={handleProceedToEndConfirm} className="flex-1 bg-gray-800 hover:bg-gray-900 text-white font-semibold py-3.5 rounded-xl text-sm transition-all cursor-pointer">次へ</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ⬛ 4. 業務終了：確認モーダル (休憩の表示を完全排除) */}
+      {/* ⬛ 4. 業務終了：確認モーダル */}
       {showEndConfirmModal && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn">
           <div className="bg-white rounded-[32px] p-8 max-w-sm w-full mx-4 shadow-xl text-center space-y-6">
             <div className="space-y-2">
               <h4 className="text-lg font-bold text-gray-800 tracking-tight">終了時間の確認</h4>
-              
               <div className="py-6 space-y-2">
                 <p className="text-sm text-gray-500 font-medium">終了時間 <span className="text-4xl font-black text-gray-900 ml-2 font-mono tracking-tight tabular-nums">{endHourInput}:{endMinuteInput}</span></p>
               </div>
-              
               <p className="text-xs text-gray-500 font-medium">
                 この内容で本日の業務を終了します。
               </p>
@@ -683,6 +698,38 @@ export default function DashboardPage() {
             <div className="flex flex-col space-y-2 pt-2">
               <button onClick={handleConfirmEndWork} className="w-full bg-gray-800 hover:bg-gray-900 text-white font-bold py-3.5 rounded-xl text-sm transition-all cursor-pointer shadow-sm">確定して送信</button>
               <button onClick={() => { setShowEndConfirmModal(false); setShowEndModal(true); }} className="w-full bg-white text-[#34C759] font-bold py-3.5 rounded-xl text-sm transition-all cursor-pointer">修正する</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 🚨 5. 【新規】未終了レコード警告モーダル */}
+      {showUnfinishedWarning && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[999] animate-fadeIn">
+          <div className="bg-white rounded-3xl p-6 max-w-sm w-full mx-4 shadow-2xl border border-gray-100 text-center space-y-5 animate-scaleUp">
+            <div className="w-12 h-12 mx-auto rounded-full bg-amber-50 text-amber-500 flex items-center justify-center">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-6 h-6">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+              </svg>
+            </div>
+
+            <div className="space-y-1">
+              <h4 className="text-base font-black text-gray-900 tracking-tight">未終了の稼働記録があります！</h4>
+              <p className="text-[11px] font-bold text-gray-600 mt-2 leading-relaxed text-left bg-amber-50/50 p-3 rounded-xl border border-amber-100">
+                昨日以前に「業務終了」が押されていない記録が残っています。<br/><br/>
+                <span className="text-amber-700">仮の時間で昨日の最終終了時間を登録した上で、当日の業務を開始してください。</span><br/>
+                昨日の業務終了時間の変更は、管理者に終了時間の変更を申請ください。
+              </p>
+            </div>
+
+            <div className="pt-2">
+              <button 
+                type="button"
+                onClick={() => setShowUnfinishedWarning(false)} 
+                className="w-full bg-amber-500 hover:bg-amber-600 text-white text-xs font-black py-3.5 rounded-xl shadow-sm transition-all shadow-amber-100"
+              >
+                確認した
+              </button>
             </div>
           </div>
         </div>

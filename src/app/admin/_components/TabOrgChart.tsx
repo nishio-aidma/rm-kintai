@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react";
 import { MemberInfo, attendanceRepository } from "@/lib/attendanceRepository";
-// 💡 【修正】不具合の原因だった getAuth のインポートを安全に撤廃
 // @ts-ignore
 import pptxgen from "pptxgenjs";
 
@@ -21,19 +20,16 @@ interface SubTeam {
 export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartProps) {
   const [localMembers, setLocalMembers] = useState<MemberInfo[]>([]);
   const [displayDepartments, setDisplayDepartments] = useState<string[]>([]);
-  const [isEditable, setIsEditable] = useState(false); // 💡 ownerまたは代理ならtrue、一般adminならfalse（閲覧のみ）にするフラグ
+  const [isEditable, setIsEditable] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [isLoadingSubTeams, setIsLoadingSubTeams] = useState(true);
   
-  // 子チーム（下部階層）の状態管理
   const [subTeams, setSubTeams] = useState<{ [parentDept: string]: SubTeam[] }>({});
   const [showAddSubModal, setShowAddSubModal] = useState<string | null>(null);
   const [newSubTeamName, setNewSubTeamName] = useState("");
 
-  // Windows標準のモーダルを使わないためのカスタム通知ステート
   const [toastMessage, setToastMessage] = useState<{ text: string; type: "success" | "error" } | null>(null);
 
-  // 通知を3秒後に自動で消すタイマー
   useEffect(() => {
     if (toastMessage) {
       const timer = setTimeout(() => setToastMessage(null), 3000);
@@ -41,39 +37,33 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
     }
   }, [toastMessage]);
 
-  // 💡 【大改造】起動時に親の制限をバイパスし、全メンバー・全部署・ログイン権限を一撃でロードする
   useEffect(() => {
     const loadAllOrganizationData = async () => {
       setIsLoadingSubTeams(true); 
       try {
-        // 1. Firestoreから全メンバーを強制的に直接全件取得
         const allMembers = await attendanceRepository.getAllMembers();
         setLocalMembers(allMembers);
 
-        // 2. 取得した全メンバーの所属から、システム内の「重複のない全部署リスト」を自動生成してセット
         const allDepts = Array.from(
           new Set(allMembers.map(m => m.department?.trim()).filter(Boolean))
         ) as string[];
         setDisplayDepartments(allDepts);
 
-        // 3. 💡 【大修正】Firebase公式の居眠り鍵穴ではなく、他の画面と100%統一して「パソコンのメモ帳（合言葉）」からownerを即時判定！
         const sessionStr = localStorage.getItem("session");
         if (sessionStr) {
           const session = JSON.parse(sessionStr);
           const email = session.email || "";
 
-          // 西尾さんは最上位のowner、または全メンバー情報から代理フラグやownerロールをチェック
           if (email === "nishio@aidma-hd.jp") {
-            setIsEditable(true); // 西尾さん本人のロックを強制解除！
+            setIsEditable(true);
           } else {
             const me = allMembers.find(m => m.email.toLowerCase() === email.toLowerCase());
             if (me?.isOwnerProxy || (me?.role as string) === "owner") {
-              setIsEditable(true); // 代理権限者のロックを強制解除！
+              setIsEditable(true);
             }
           }
         }
         
-        // 4. 全部署の子チーム（下部階層）のデータを並列ロード
         const loadedSubTeams: { [parentDept: string]: SubTeam[] } = {};
         await Promise.all(
           allDepts.map(async (dept) => {
@@ -102,7 +92,6 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
     return localMembers.filter(m => m.department === deptName);
   };
 
-  // 子チームを新規追加
   const handleAddSubTeam = async (parentDept: string) => {
     if (!newSubTeamName.trim()) return;
     
@@ -132,7 +121,11 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
     if (!targetMember) return;
 
     const currentLeading = targetMember.leadingTeams || [];
-    if (currentLeading.includes(deptName)) return;
+    // 💡 同一チームの二重登録は防ぐが、他のチームの兼任は許可される
+    if (currentLeading.includes(deptName)) {
+      setToastMessage({ text: "⚠️ すでにこのチームのリーダーとして登録されています", type: "error" });
+      return;
+    }
 
     const updatedLeading = [...currentLeading, deptName];
     try {
@@ -339,6 +332,7 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
               const leaders = getLeadersForDepartment(deptName);
               const deptMembers = getMembersForDepartment(deptName);
 
+              // 💡 修正: ここで「すでにこのチームのリーダーになっている人」だけをメンバーリストから除外する
               const leaderEmails = leaders.map(l => l.email);
               const displayMembers = deptMembers.filter(m => !leaderEmails.includes(m.email));
 
@@ -381,7 +375,6 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
                                   <span className="text-xs flex-shrink-0">👑</span>
                                   <span className="font-extrabold text-[12px] text-gray-800 truncate">{leader.name}</span>
                                 </div>
-                                {/* 💡 【復活】ロック解除により、西尾さんの画面では✕ボタンが正常に復活します */}
                                 {isEditable && (
                                   <button
                                     type="button"
@@ -397,45 +390,49 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
                         ) : (
                           <div className="bg-gray-50/50 border border-dashed border-gray-200 rounded-lg p-1.5 space-y-1 text-center">
                             <p className="text-gray-300 italic text-[10px] font-normal">未設定</p>
-                            
-                            {/* 💡 【復活】ロック解除により、西尾さんの画面ではプルダウンが正常に復活します */}
-                            {isEditable && (
-                              <div className="grid grid-cols-1 gap-1 pt-0.5">
-                                <select
-                                  onChange={(e) => {
-                                    handleAssignLeader(deptName, e.target.value);
-                                    e.target.value = ""; 
-                                  }}
-                                  defaultValue=""
-                                  className="w-full bg-white border border-gray-200 rounded px-2 py-1 text-[11px] font-bold text-gray-600 cursor-pointer focus:outline-none shadow-sm"
-                                >
-                                  <option value="" disabled>👥 所属内から選択</option>
-                                  {displayMembers.map(m => (
-                                    <option key={m.email} value={m.email}>{m.name}</option>
-                                  ))}
-                                </select>
+                          </div>
+                        )}
 
-                                <select
-                                  onChange={(e) => {
-                                    handleAssignLeader(deptName, e.target.value);
-                                    e.target.value = "";
-                                  }}
-                                  defaultValue=""
-                                  className="w-full bg-white border border-purple-200 rounded px-2 py-1 text-[11px] font-bold text-purple-600 cursor-pointer focus:outline-none shadow-sm"
-                                >
-                                  <option value="" disabled>🔍 全社員から選択</option>
-                                  {localMembers.map(m => (
-                                    <option key={m.email} value={m.email}>{m.name} ({m.department || "未"})</option>
-                                  ))}
-                                </select>
-                              </div>
-                            )}
+                        {/* リーダー追加用のプルダウン */}
+                        {isEditable && (
+                          <div className="grid grid-cols-1 gap-1 pt-0.5 mt-2">
+                            <select
+                              onChange={(e) => {
+                                handleAssignLeader(deptName, e.target.value);
+                                e.target.value = ""; 
+                              }}
+                              defaultValue=""
+                              className="w-full bg-white border border-gray-200 rounded px-2 py-1 text-[11px] font-bold text-gray-600 cursor-pointer focus:outline-none shadow-sm"
+                            >
+                              {/* 💡 修正: ここには「すでにこのチームのリーダーになっている人」以外全員が表示される */}
+                              <option value="" disabled>👥 所属内から追加</option>
+                              {displayMembers.map(m => (
+                                <option key={m.email} value={m.email}>{m.name}</option>
+                              ))}
+                            </select>
+
+                            <select
+                              onChange={(e) => {
+                                handleAssignLeader(deptName, e.target.value);
+                                e.target.value = "";
+                              }}
+                              defaultValue=""
+                              className="w-full bg-white border border-purple-200 rounded px-2 py-1 text-[11px] font-bold text-purple-600 cursor-pointer focus:outline-none shadow-sm"
+                            >
+                              {/* 💡 修正: 「全社員」の中にも兼任可能な全員が表示される */}
+                              <option value="" disabled>🔍 全社員から追加</option>
+                              {localMembers
+                                .filter(m => !leaderEmails.includes(m.email))
+                                .map(m => (
+                                  <option key={m.email} value={m.email}>{m.name} ({m.department || "未"})</option>
+                                ))}
+                            </select>
                           </div>
                         )}
                       </div>
 
                       {/* ▼ 所属メンバー */}
-                      <div className="space-y-1.5">
+                      <div className="space-y-1.5 pt-1">
                         <label className="text-[10px] font-bold text-gray-400 block">▼ 所属メンバー</label>
                         <div className="border-l-2 border-gray-200 pl-3 ml-1 space-y-2">
                           {displayMembers.map(m => (
@@ -452,7 +449,7 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
                         </div>
                       </div>
 
-                      {/* 【復活】子チーム作成ボタン */}
+                      {/* 子チーム作成ボタン */}
                       {isEditable && (
                         <div className="pt-2 border-t border-gray-100 flex flex-col items-center">
                           <button

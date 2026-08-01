@@ -194,12 +194,7 @@ export default function RecordsPage() {
     <div className="min-h-screen bg-gray-50 text-gray-800 font-sans">
       <header className="bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between shadow-sm">
         <div className="flex items-center space-x-3">
-          <img 
-            src="/icon_rmkintai.png" 
-            alt="ダコック ロゴ" 
-            onClick={() => router.push("/")} 
-            className="h-9 w-auto cursor-pointer transition-transform hover:scale-105" 
-          />
+          {/* 💡 左上のロゴアイコン(imgタグ)を削除 */}
           <span className="text-xs bg-emerald-50 text-emerald-600 px-2.5 py-1 rounded-full font-medium">業務記録一覧</span>
         </div>
         <button onClick={() => router.push("/")} className="text-sm text-emerald-600 hover:text-emerald-700 font-medium transition-colors">← トップページに戻る</button>
@@ -252,7 +247,6 @@ export default function RecordsPage() {
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
-                  {/* 💡 テーブルヘッダーから「休憩時間」列を削除 */}
                   <tr className="border-b border-gray-100 text-gray-400 font-semibold bg-gray-50/50">
                     <th className="py-2 pl-3 font-medium">勤務日</th>
                     <th className="py-2 font-medium">業務開始</th>
@@ -271,7 +265,6 @@ export default function RecordsPage() {
                         <span className={record.endTime === "---" ? "text-gray-300 font-normal" : ""}>{record.endTime}</span>
                       </td>
                       
-                      {/* 💡 テーブルボディから休憩時間セルを削除し、実働時間のみを表示 */}
                       <td className="py-2 tabular-nums font-semibold text-gray-700">
                         {record.endTime === "---" ? (
                           "---"

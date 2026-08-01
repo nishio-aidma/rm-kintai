@@ -15,14 +15,29 @@ export default function LoginPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isChecking, setIsChecking] = useState(true);
 
-  // 👑 進化：2回目以降は自動でログインをスキップする魔法（完全ログインレス仕様）
+  // 👑 安全装置付き：ログイン情報のチェックと自動スキップ
   useEffect(() => {
     const sessionStr = localStorage.getItem("session");
     if (sessionStr) {
-      // すでにログインした記憶（合言葉）がメモ帳にあれば、フォームを見せずに直接トップ画面へジャンプ！
-      router.push("/");
+      try {
+        const session = JSON.parse(sessionStr);
+        // メールアドレスが正しく入っているか確認
+        if (session && session.email) {
+          // 正常なデータがあればトップ画面へジャンプ
+          router.push("/");
+          return;
+        } else {
+          // データが不完全な場合は破棄する
+          localStorage.removeItem("session");
+          setIsChecking(false);
+        }
+      } catch (error) {
+        // データが壊れてJSON解析できない場合も破棄する
+        localStorage.removeItem("session");
+        setIsChecking(false);
+      }
     } else {
-      // メモ帳が空っぽ（初回やログアウト後）の時だけ、入力フォームを優しく表示する
+      // メモ帳が空っぽの時は入力フォームを表示する
       setIsChecking(false);
     }
   }, [router]);
@@ -81,7 +96,7 @@ export default function LoginPage() {
     }
   };
 
-  // メモ帳を確認している一瞬（0.1秒）のチラつきを防ぐための安全装置
+  // メモ帳を確認している一瞬のチラつきを防ぐための安全装置
   if (isChecking) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center font-sans text-xs px-4">
@@ -94,15 +109,14 @@ export default function LoginPage() {
     <div className="min-h-screen bg-gray-50 flex items-center justify-center font-sans text-xs px-4">
       <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-sm border border-gray-100 space-y-6 text-center">
 
-<div className="flex flex-col items-center">
-  {/* 👑 ログイン画面のテキストロゴも存在感のあるアイコン画像に差し替え */}
-  <img 
-    src="/icon_rmkintai.png" 
-    alt="ダコック ロゴ" 
-    className="h-20 w-auto mb-3" // 画面中央なので大きめに配置
-  />
-  <p className="text-gray-400 font-medium">ダコック 業務管理システム</p>
-</div>
+        <div className="flex flex-col items-center">
+          <img 
+            src="/icon_rmkintai.png" 
+            alt="ダコック ロゴ" 
+            className="h-20 w-auto mb-3"
+          />
+          <p className="text-gray-400 font-medium">ダコック 業務管理システム</p>
+        </div>
 
         {errorMessage && (
           <div className="bg-red-50 text-red-700 font-semibold p-3 rounded-xl border border-red-100 text-left">

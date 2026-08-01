@@ -1,75 +1,109 @@
 import { NextResponse } from "next/server";
-import { collection, query, where, getDocs, updateDoc } from "firebase/firestore";
-// すでに打刻や組織図で100%完璧に動いている、実績のある普通のFirebase接続（db）をインポート
+import { collection, query, where, getDocs, updateDoc, doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
 export async function POST(req: Request) {
   try {
-    // 👑 進化：画面側から新しく送られてくる、Firebase公式の安全な背番号（uid）を追加で受け取る
     const { lastName, firstName, email, uid } = await req.json();
 
-    if (!lastName || !firstName) {
+    // 💡 前後の余計な空白（スペース）を綺麗に除去
+    const cleanLastName = (lastName || "").trim();
+    const cleanFirstName = (firstName || "").trim();
+    const cleanEmail = (email || "").trim().toLowerCase();
+
+    if (!cleanLastName || !cleanFirstName) {
       return NextResponse.json(
         { error: "姓・名は必須です" },
         { status: 400 }
       );
     }
 
-    // データベースの登録に合わせて、すべて小文字の "lastname" と "firstname" で検索
+    let targetDocRef: any = null;
+    let data: any = null;
+
+    // 1. members コレクションから「苗字 + 名前」で検索
     const membersRef = collection(db, "members");
-    const q = query(
+    const qMembers = query(
       membersRef,
-      where("lastName", "==", lastName),
-      where("firstName", "==", firstName)
+      where("lastName", "==", cleanLastName),
+      where("firstName", "==", cleanFirstName)
     );
-    const snapshot = await getDocs(q);
+    const snapMembers = await getDocs(qMembers);
 
-    console.log("LOGIN INPUT", {
-      lastName,
-      firstName,
-      email,
-    });
-    
-    console.log("SNAPSHOT SIZE", snapshot.size);
+    if (!snapMembers.empty) {
+      const docSnap = snapMembers.docs[0];
+      targetDocRef = docSnap.ref;
+      data = docSnap.data();
+    } else {
+      // 2. members にいない場合、fixed_members（固定メンバー枠）から「苗字 + 名前」で検索
+      const fixedRef = collection(db, "fixed_members");
+      const qFixed = query(
+        fixedRef,
+        where("lastName", "==", cleanLastName),
+        where("firstName", "==", cleanFirstName)
+      );
+      const snapFixed = await getDocs(qFixed);
 
-    if (snapshot.empty) {
+      if (!snapFixed.empty) {
+        const docSnap = snapFixed.docs[0];
+        targetDocRef = docSnap.ref;
+        data = docSnap.data();
+      } else if (cleanEmail) {
+        // 3. 名前検索で見つからない場合、メールアドレスから救済検索
+        const qEmailMembers = query(membersRef, where("email", "==", cleanEmail));
+        const snapEmailMembers = await getDocs(qEmailMembers);
+
+        if (!snapEmailMembers.empty) {
+          const docSnap = snapEmailMembers.docs[0];
+          targetDocRef = docSnap.ref;
+          data = docSnap.data();
+        } else {
+          // fixed_members ドキュメントID指定検索
+          const fixedDocRef = doc(db, "fixed_members", cleanEmail);
+          const fixedDocSnap = await getDoc(fixedDocRef);
+          if (fixedDocSnap.exists()) {
+            targetDocRef = fixedDocRef;
+            data = fixedDocSnap.data();
+          }
+        }
+      }
+    }
+
+    // 最終チェック：どこにもデータが存在しない場合
+    if (!targetDocRef || !data) {
       return NextResponse.json(
         { error: "ユーザーが見つかりません" },
         { status: 404 }
       );
     }
 
-    const docSnap = snapshot.docs[0];
-    const data = docSnap.data();
+    const loginEmail = cleanEmail;
 
-    const loginEmail = email?.trim();
-
-    // 👑 修正＆進化：メールアドレスの更新と同時に、送られてきた公式の背番号（uid）をデータベースへガチッと紐付け保存
+    // 👑 既存仕様維持：メールアドレスの更新と背番号(uid)の紐付け
     const updateData: any = {};
 
     if (loginEmail) {
       const secondary = data.secondaryEmails || [];
 
-      if (data.email === "") {
+      if (!data.email) {
         updateData.email = loginEmail;
       } else if (data.email !== loginEmail && !secondary.includes(loginEmail)) {
         updateData.secondaryEmails = [...secondary, loginEmail];
       }
     }
 
-    // 👑 今回追加：Firebase公式の背番号をメンバーデータへ自動保存（これがログインレスの鍵になります）
     if (uid) {
       updateData.firebaseUid = uid;
     }
 
-    // 変更項目（メールや背番号）があれば、まとめてデータベースを安全に更新
     if (Object.keys(updateData).length > 0) {
-      await updateDoc(docSnap.ref, updateData);
+      await updateDoc(targetDocRef, updateData);
     }
 
+    // 👑 既存仕様維持：セッション情報の生成
     const session = {
-      memberId: docSnap.id,
-      name: `${data.lastname} ${data.firstname}`,
+      memberId: targetDocRef.id,
+      name: `${data.lastName || cleanLastName} ${data.firstName || cleanFirstName}`,
       email: data.email || loginEmail,
       loginAt: new Date().toISOString(),
     };

@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { auth } from "@/lib/firebase";
+import { collection, query, where, getDocs } from "firebase/firestore";
+import { auth, db } from "@/lib/firebase";
 import { attendanceRepository } from "@/lib/attendanceRepository";
 
 // 🍏 ドラムロール選択UIコンポーネント
@@ -77,7 +78,7 @@ function ScrollWheelPicker({
 // 💡 useSearchParams を利用するダッシュボード画面本体
 function DashboardContent() {
   const router = useRouter();
-  const searchParams = useSearchParams(); // 💡 URLパラメータを取得するためのフック
+  const searchParams = useSearchParams();
 
   const [currentTime, setCurrentTime] = useState(new Date());
   const [isMounted, setIsMounted] = useState(false);
@@ -164,9 +165,7 @@ function DashboardContent() {
             setWorkState("not_started");
           }
 
-          // 💡 過去の「未終了」データがないかチェックする
-          const db = require("@/lib/firebase").db;
-          const { collection, query, where, getDocs } = require("firebase/firestore");
+          // 💡 正しいインポート情報（db, collection, query, where, getDocs）を使用して検索
           const q = query(
             collection(db, "attendance_records"),
             where("email", "==", email),
@@ -176,8 +175,8 @@ function DashboardContent() {
           const querySnapshot = await getDocs(q);
           
           let hasOldUnfinished = false;
-          querySnapshot.forEach((doc: any) => {
-            const data = doc.data();
+          querySnapshot.forEach((docSnap) => {
+            const data = docSnap.data();
             // 今日以外の未終了データがあればフラグを立てる
             if (data.workDate !== todayStr) {
               hasOldUnfinished = true;
@@ -369,7 +368,6 @@ function DashboardContent() {
       setCurrentStartTimeStr("");
       setStatusMessage(`お疲れ様でした！本日の業務終了を記録しました。`);
       
-      // 💡 もしURLパラメータに ?action=end があった場合は、完了後にURLを綺麗にする
       if (searchParams?.get("action") === "end") {
         router.replace("/");
       }
@@ -670,7 +668,7 @@ function DashboardContent() {
               <button 
                 onClick={() => {
                   setShowEndModal(false);
-                  if (searchParams?.get("action") === "end") router.replace("/"); // パラメータがあれば綺麗にする
+                  if (searchParams?.get("action") === "end") router.replace("/");
                 }} 
                 className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-600 font-semibold py-3.5 rounded-xl text-sm transition-all cursor-pointer"
               >
@@ -704,7 +702,7 @@ function DashboardContent() {
         </div>
       )}
 
-      {/* 🚨 5. 【新規】未終了レコード警告モーダル */}
+      {/* 🚨 5. 未終了レコード警告モーダル */}
       {showUnfinishedWarning && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[999] animate-fadeIn">
           <div className="bg-white rounded-3xl p-6 max-w-sm w-full mx-4 shadow-2xl border border-gray-100 text-center space-y-5 animate-scaleUp">
@@ -740,7 +738,7 @@ function DashboardContent() {
   );
 }
 
-// 💡 Next.jsのビルドエラーを防ぐため、Suspenseで全体を包み込んでエクスポート
+// 💡 Suspenseで包み込んでエクスポート
 export default function DashboardPage() {
   return (
     <Suspense fallback={<div className="min-h-screen bg-gray-50 flex items-center justify-center font-bold text-gray-400">画面を読み込み中...</div>}>

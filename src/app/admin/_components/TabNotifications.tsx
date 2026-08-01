@@ -13,8 +13,8 @@ export default function TabNotifications({
   setStatusMessage,
 }: TabNotificationsProps) {
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [showToken, setShowToken] = useState<boolean>(false);
   
-  // 💡 通知設定のステート（初期値）
   const [settings, setSettings] = useState<NotificationsSettings>({
     unverifiedReminder: {
       enabled: true,
@@ -32,15 +32,18 @@ export default function TabNotifications({
       message: "【ダコックリマインド】本日または過去の稼働記録で、業務終了時間が未登録のデータがあります。正しい終了時間を記録してください。\n[打刻画面URL]",
     },
     teamRoomIds: {},
+    apiToken: "",
   });
 
-  // 💡 画面表示時にデータベースから保存済みの通知設定を取得する
   useEffect(() => {
     const loadSettings = async () => {
       try {
         const data = await attendanceRepository.getNotificationSettings();
         if (data) {
-          setSettings(data);
+          setSettings({
+            ...data,
+            apiToken: data.apiToken || "",
+          });
         }
       } catch (error) {
         console.error("通知設定の読み込みに失敗しました:", error);
@@ -51,9 +54,7 @@ export default function TabNotifications({
     loadSettings();
   }, []);
 
-  // 💡 ルームIDの変更ハンドラー
   const handleRoomIdChange = (teamName: string, value: string) => {
-    // 6桁の数字のみ許可
     const cleanValue = value.replace(/\D/g, "").slice(0, 6);
     setSettings((prev) => ({
       ...prev,
@@ -64,7 +65,6 @@ export default function TabNotifications({
     }));
   };
 
-  // 💡 URL挿入ボタンのハンドラー
   const handleInsertUrl = (
     key: "unverifiedReminder" | "submissionReminder" | "missingEndWorkReminder",
     urlTag: string
@@ -78,7 +78,6 @@ export default function TabNotifications({
     }));
   };
 
-  // 💡 データベースへの本保存処理
   const handleSave = async () => {
     try {
       setStatusMessage("通知設定を保存中...");
@@ -98,14 +97,48 @@ export default function TabNotifications({
 
   return (
     <div className="space-y-6 text-xs font-sans animate-fadeIn max-w-4xl mx-auto pb-12">
-      {/* 画面ヘッダー */}
       <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm space-y-1">
         <h3 className="text-base font-bold text-gray-800 flex items-center space-x-2">
-          <span>🔔 MEMBERS チャットリマインド通知設定</span>
+          <span>MEMBERS チャットリマインド通知設定</span>
         </h3>
         <p className="text-gray-400 text-xs">
-          社内チャットツール（MEMBERS）への自動催促メッセージ、配信時刻、チーム別ルームIDを設定します。
+          社内チャットツール（MEMBERS）への自動催促メッセージ、配信時刻、チーム別ルームID、API連携キーを設定します。
         </p>
+      </div>
+
+      {/* 🔑 APIトークン入力欄 */}
+      <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm space-y-3">
+        <div className="border-b border-gray-100 pb-3">
+          <h4 className="text-sm font-bold text-gray-800">🔑 MEMBERS API アクセストークン設定</h4>
+          <p className="text-[11px] text-gray-400 mt-0.5">
+            MEMBERSから発行されたアクセストークン（Bearerトークン）を入力してください。
+          </p>
+        </div>
+
+        <div className="space-y-1.5 pt-1">
+          <label className="font-bold text-gray-600 block">APIアクセストークン</label>
+          <div className="flex items-center space-x-2">
+            <input
+              type={showToken ? "text" : "password"}
+              value={settings.apiToken || ""}
+              onChange={(e) =>
+                setSettings((prev) => ({
+                  ...prev,
+                  apiToken: e.target.value,
+                }))
+              }
+              placeholder="MEMBERSのAPIトークンを貼り付けてください"
+              className="flex-1 border border-gray-200 rounded-xl px-3 py-2 bg-gray-50/50 font-mono text-xs focus:bg-white focus:outline-none focus:border-emerald-500"
+            />
+            <button
+              type="button"
+              onClick={() => setShowToken(!showToken)}
+              className="bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap"
+            >
+              {showToken ? "非表示にする" : "表示する"}
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* ① 未確認記録の催促通知 */}
@@ -288,7 +321,6 @@ export default function TabNotifications({
         )}
       </div>
 
-      {/* 設定保存ボタン */}
       <div className="flex justify-end pt-2">
         <button
           onClick={handleSave}

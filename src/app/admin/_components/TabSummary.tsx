@@ -44,12 +44,23 @@ export default function TabSummary({
 
   const [currentUserRole, setCurrentUserRole] = useState<"admin" | "owner">("admin");
 
+  // モーダルの表示用ステート（type: "confirm" | "info" で送信確認とお知らせを切り替え）
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalData, setModalData] = useState<{
+    type: "confirm" | "info";
+    title: string;
+    message: string;
     targetCount: number;
     targets: { name: string; dept: string }[];
     onConfirm: () => Promise<void>;
-  }>({ targetCount: 0, targets: [], onConfirm: async () => {} });
+  }>({
+    type: "confirm",
+    title: "",
+    message: "",
+    targetCount: 0,
+    targets: [],
+    onConfirm: async () => {}
+  });
 
   useEffect(() => {
     const sessionStr = localStorage.getItem("session");
@@ -198,7 +209,10 @@ export default function TabSummary({
     }
   };
 
+  // 💡 【修正】ボタンクリック時の通知ロジック：未提出者がいない場合は親切なポップアップを表示
   const handleNotifySelected = async () => {
+    if (selectedEmails.length === 0) return;
+
     const targetEmails = displayedEmails.filter(email => selectedEmails.includes(email));
 
     const unsubmittedTargets = targetEmails
@@ -212,15 +226,25 @@ export default function TabSummary({
         dept: defaultGetMemberMeta(email).department || "未設定"
       }));
 
-    if (selectedEmails.length === 0) {
-      return;
-    }
-
+    // 💡 提出済みの人しか選ばれていない場合のお知らせ表示
     if (unsubmittedTargets.length === 0) {
+      setModalData({
+        type: "info",
+        title: "催促通知の対象外です",
+        message: "選択されたメンバーは全員すでに【提出済】です。\n催促通知は【未提出】のメンバーにのみ送信されます。",
+        targetCount: 0,
+        targets: [],
+        onConfirm: async () => {}
+      });
+      setIsModalOpen(true);
       return;
     }
 
+    // 💡 未提出者が含まれる場合の送信確認表示
     setModalData({
+      type: "confirm",
+      title: "MEMBER-S 個別催促通知",
+      message: `選択中メンバーの中から【未提出】の ${unsubmittedTargets.length} 名へ個別に催促メッセージを送信しますか？`,
       targetCount: unsubmittedTargets.length,
       targets: unsubmittedTargets,
       onConfirm: async () => {
@@ -453,38 +477,64 @@ export default function TabSummary({
         )
       )}
 
+      {/* 💡 カスタムポップアップ（送信確認 ＆ 対象外お知らせ） */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[999] animate-fadeIn">
           <div className="bg-white rounded-3xl p-6 max-w-sm w-full mx-4 shadow-2xl border border-gray-100 text-center space-y-4 animate-scaleUp">
-            <div className="w-12 h-12 mx-auto rounded-full bg-amber-50 text-amber-500 flex items-center justify-center">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-6 h-6">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
+            
+            <div className={`w-12 h-12 mx-auto rounded-full flex items-center justify-center ${
+              modalData.type === "info" ? "bg-blue-50 text-blue-500" : "bg-amber-50 text-amber-500"
+            }`}>
+              {modalData.type === "info" ? (
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-6 h-6">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
+                </svg>
+              ) : (
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-6 h-6">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              )}
             </div>
+
             <div className="space-y-1">
-              <h4 className="text-base font-black text-gray-900 tracking-tight">MEMBER-S 個別催促通知</h4>
-              <p className="text-xs font-bold text-gray-600">選択中メンバーの中から【未提出】の {modalData.targetCount} 名へ個別に催促メッセージを送信しますか？</p>
+              <h4 className="text-base font-black text-gray-900 tracking-tight">{modalData.title}</h4>
+              <p className="text-xs font-bold text-gray-600 whitespace-pre-wrap">{modalData.message}</p>
               
-              <div className="max-h-32 overflow-y-auto text-[10px] text-gray-500 font-sans bg-gray-50 p-2.5 rounded-xl border border-gray-100 text-left space-y-1 mt-2">
-                <p className="font-bold text-gray-700">▼ 送信対象メンバー</p>
-                {modalData.targets.map((t, idx) => (
-                  <p key={idx} className="truncate">・ {t.name} さん ({t.dept})</p>
-                ))}
-                <p className="text-amber-600 font-bold pt-1">※通知設定で登録したテンプレート文面が個人メンション付きで送信されます。</p>
-              </div>
+              {modalData.type === "confirm" && (
+                <div className="max-h-32 overflow-y-auto text-[10px] text-gray-500 font-sans bg-gray-50 p-2.5 rounded-xl border border-gray-100 text-left space-y-1 mt-2">
+                  <p className="font-bold text-gray-700">▼ 送信対象メンバー</p>
+                  {modalData.targets.map((t, idx) => (
+                    <p key={idx} className="truncate">・ {t.name} さん ({t.dept})</p>
+                  ))}
+                  <p className="text-amber-600 font-bold pt-1">※通知設定で登録したテンプレート文面が個人メンション付きで送信されます。</p>
+                </div>
+              )}
             </div>
+
             <div className="flex space-x-2 pt-1">
-              <button onClick={() => setIsModalOpen(false)} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-600 text-xs font-bold py-2 rounded-xl transition-all">キャンセル</button>
-              <button 
-                onClick={async () => {
-                  setIsModalOpen(false);
-                  await modalData.onConfirm();
-                }} 
-                className="flex-1 bg-amber-500 hover:bg-amber-600 text-white text-xs font-black py-2 rounded-xl transition-all shadow-sm shadow-amber-100 cursor-pointer"
-              >
-                🚀 送信する
-              </button>
+              {modalData.type === "info" ? (
+                <button 
+                  onClick={() => setIsModalOpen(false)} 
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-black py-2.5 rounded-xl transition-all shadow-sm cursor-pointer"
+                >
+                  理解しました
+                </button>
+              ) : (
+                <>
+                  <button onClick={() => setIsModalOpen(false)} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-600 text-xs font-bold py-2 rounded-xl transition-all cursor-pointer">キャンセル</button>
+                  <button 
+                    onClick={async () => {
+                      setIsModalOpen(false);
+                      await modalData.onConfirm();
+                    }} 
+                    className="flex-1 bg-amber-500 hover:bg-amber-600 text-white text-xs font-black py-2 rounded-xl transition-all shadow-sm shadow-amber-100 cursor-pointer"
+                  >
+                    🚀 送信する
+                  </button>
+                </>
+              )}
             </div>
+
           </div>
         </div>
       )}

@@ -10,18 +10,18 @@ import TabCsv from "./_components/TabCsv";
 import TabMembers from "./_components/TabMembers";
 import TabOrgChart from "./_components/TabOrgChart"; 
 import TabSettings from "./_components/TabSettings";
-import TabNotifications from "./_components/TabNotifications"; // 💡 新規追加: 通知設定コンポーネント
 import EditModal from "./_components/EditModal";
 
+// 💡 実打刻時間（actualStartTime / actualEndTime）を受け取れるよう型定義を拡張
 interface AdminAttendanceRecord {
   id: string;
   userName: string;
   email: string;
   workDate: string;
   startTime: string;
-  actualStartTime?: string; 
+  actualStartTime?: string; // 👑 新設: 実際の開始打刻操作時刻
   endTime: string;
-  actualEndTime?: string; 
+  actualEndTime?: string; // 👑 新設: 実際の終了打刻操作時刻
   breakMinutes: number;
   workHours: number;
   submitted: boolean;
@@ -55,8 +55,7 @@ export default function AdminPage() {
   const [userRole, setUserRole] = useState<"admin" | "owner">("admin");
   const [myDepartment, setMyDepartment] = useState<string>("");
   
-  // 💡 "notifications" をタブの選択肢に追加
-  const [activeTab, setActiveTab] = useState<"summary" | "records" | "members" | "csv" | "org" | "settings" | "notifications">("records");
+  const [activeTab, setActiveTab] = useState<"summary" | "records" | "members" | "csv" | "org" | "settings">("records");
 
   const [attendanceRecords, setAttendanceRecords] = useState<AdminAttendanceRecord[]>([]);
   const [members, setMembers] = useState<MemberInfo[]>([]);
@@ -405,15 +404,10 @@ export default function AdminPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-800 font-sans text-sm">
-      <header className="bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between shadow-sm overflow-x-auto">
-        <div className="flex items-center space-x-6 min-w-max">
+      <header className="bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between shadow-sm">
+        <div className="flex items-center space-x-6">
+          {/* 💡 左上のアイコン(imgタグ)を非表示（削除）に修正 */}
           <div className="flex items-center space-x-3">
-            <img 
-              src="/icon_rmkintai.png" 
-              alt="ダコック ロゴ" 
-              onClick={() => router.push("/")} 
-              className="h-9 w-auto cursor-pointer transition-transform hover:scale-105" 
-            />
             <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${userRole === "owner" ? "bg-gray-800 text-white" : "bg-purple-600 text-white"}`}>
               {userRole === "owner" ? "オーナーパネル" : `チーム管理者パネル (${myDepartment || "未設定"})`}
             </span>
@@ -421,47 +415,39 @@ export default function AdminPage() {
 
           <div className="flex space-x-2 border-l border-gray-200 pl-6 text-sm font-bold">
             {(userRole === "owner" || (userRole === "admin" && adminAllowedTabs.includes("summary"))) && (
-              <button onClick={() => setActiveTab("summary")} className={`px-3 py-1.5 rounded-xl transition-all whitespace-nowrap ${activeTab === "summary" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
+              <button onClick={() => setActiveTab("summary")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "summary" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
                 稼働実績
               </button>
             )}
             {(userRole === "owner" || (userRole === "admin" && adminAllowedTabs.includes("records"))) && (
-              <button onClick={() => setActiveTab("records")} className={`px-3 py-1.5 rounded-xl transition-all whitespace-nowrap ${activeTab === "records" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
+              <button onClick={() => setActiveTab("records")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "records" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
                 稼働記録
               </button>
             )}
             {(userRole === "owner" || (userRole === "admin" && adminAllowedTabs.includes("members"))) && (
-              <button onClick={() => setActiveTab("members")} className={`px-3 py-1.5 rounded-xl transition-all whitespace-nowrap ${activeTab === "members" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
+              <button onClick={() => setActiveTab("members")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "members" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
                 所属チーム登録
               </button>
             )}
             {(userRole === "owner" || (userRole === "admin" && adminAllowedTabs.includes("org"))) && (
-              <button onClick={() => setActiveTab("org")} className={`px-3 py-1.5 rounded-xl transition-all whitespace-nowrap ${activeTab === "org" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
+              <button onClick={() => setActiveTab("org")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "org" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
                  組織図
               </button>
             )}
-            
-            {/* 💡 新規追加: 通知設定タブ（オーナーのみ表示） */}
             {userRole === "owner" && (
-              <button onClick={() => setActiveTab("notifications")} className={`px-3 py-1.5 rounded-xl transition-all whitespace-nowrap flex items-center space-x-1 ${activeTab === "notifications" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
-                <span>通知設定</span>
-              </button>
-            )}
-
-            {userRole === "owner" && (
-              <button onClick={() => setActiveTab("csv")} className={`px-3 py-1.5 rounded-xl transition-all whitespace-nowrap ${activeTab === "csv" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
+              <button onClick={() => setActiveTab("csv")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "csv" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
                 CSVインポート
               </button>
             )}
             {userRole === "owner" && (
-              <button onClick={() => setActiveTab("settings")} className={`px-3 py-1.5 rounded-xl transition-all whitespace-nowrap ${activeTab === "settings" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
+              <button onClick={() => setActiveTab("settings")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "settings" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
                 オーナー設定
               </button>
             )}
           </div>
         </div>
 
-        <button onClick={() => router.push("/")} className="text-sm text-emerald-600 hover:text-emerald-700 font-medium transition-colors ml-4 whitespace-nowrap">
+        <button onClick={() => router.push("/")} className="text-sm text-emerald-600 hover:text-emerald-700 font-medium transition-colors">
           ← 自分の打刻画面に戻る
         </button>
       </header>
@@ -586,14 +572,6 @@ export default function AdminPage() {
           />
         )}
 
-        {/* 💡 新規追加: 通知設定タブの内容を表示 */}
-        {userRole === "owner" && activeTab === "notifications" && (
-          <TabNotifications 
-            uniqueDepartments={uniqueDepartments} 
-            setStatusMessage={setStatusMessage} 
-          />
-        )}
-
         {userRole === "owner" && activeTab === "csv" && (
           <TabCsv handleCSVUpload={handleCSVUpload} members={members} />
         )}
@@ -603,6 +581,7 @@ export default function AdminPage() {
         )}
       </main>
 
+      {/* 💡 EditModal への受け渡し */}
       {showEditModal && editingRecord && (
         <EditModal 
           editingRecord={editingRecord} 

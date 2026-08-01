@@ -10,6 +10,7 @@ import TabCsv from "./_components/TabCsv";
 import TabMembers from "./_components/TabMembers";
 import TabOrgChart from "./_components/TabOrgChart"; 
 import TabSettings from "./_components/TabSettings";
+import TabNotifications from "./_components/TabNotifications"; // 💡 追加: 通知設定タブの読み込み
 import EditModal from "./_components/EditModal";
 
 // 💡 実打刻時間（actualStartTime / actualEndTime）を受け取れるよう型定義を拡張
@@ -55,7 +56,8 @@ export default function AdminPage() {
   const [userRole, setUserRole] = useState<"admin" | "owner">("admin");
   const [myDepartment, setMyDepartment] = useState<string>("");
   
-  const [activeTab, setActiveTab] = useState<"summary" | "records" | "members" | "csv" | "org" | "settings">("records");
+  // 💡 notifications タブを追加
+  const [activeTab, setActiveTab] = useState<"summary" | "records" | "members" | "csv" | "org" | "settings" | "notifications">("records");
 
   const [attendanceRecords, setAttendanceRecords] = useState<AdminAttendanceRecord[]>([]);
   const [members, setMembers] = useState<MemberInfo[]>([]);
@@ -350,7 +352,7 @@ export default function AdminPage() {
           hourlyRate: Number(columns[idxRate]) || 0,
           media: columns[idxMedia] || "",
           createdAtStr: columns[idxCreatedAt] || "",
-          name: `${columns[idxLastName]} ${columns[idxFirstName]}`
+          name: `${columns[idxLastName]}${columns[idxFirstName]}`
         });
       }
     }
@@ -406,7 +408,6 @@ export default function AdminPage() {
     <div className="min-h-screen bg-gray-50 text-gray-800 font-sans text-sm">
       <header className="bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between shadow-sm">
         <div className="flex items-center space-x-6">
-          {/* 💡 左上のアイコン(imgタグ)を非表示（削除）に修正 */}
           <div className="flex items-center space-x-3">
             <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${userRole === "owner" ? "bg-gray-800 text-white" : "bg-purple-600 text-white"}`}>
               {userRole === "owner" ? "オーナーパネル" : `チーム管理者パネル (${myDepartment || "未設定"})`}
@@ -442,6 +443,12 @@ export default function AdminPage() {
             {userRole === "owner" && (
               <button onClick={() => setActiveTab("settings")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "settings" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
                 オーナー設定
+              </button>
+            )}
+            {/* 💡 追加: オーナー権限時に通知設定タブを表示 */}
+            {userRole === "owner" && (
+              <button onClick={() => setActiveTab("notifications")} className={`px-3 py-1.5 rounded-xl transition-all ${activeTab === "notifications" ? "bg-emerald-50 text-emerald-600 font-extrabold" : "border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50"}`}>
+                🔔 通知設定
               </button>
             )}
           </div>
@@ -578,6 +585,14 @@ export default function AdminPage() {
 
         {userRole === "owner" && activeTab === "settings" && (
           <TabSettings setStatusMessage={setStatusMessage} loadAllParentData={loadAllData} />
+        )}
+
+        {/* 💡 追加: 通知設定画面の表示コンテンツ */}
+        {userRole === "owner" && activeTab === "notifications" && (
+          <TabNotifications 
+            uniqueDepartments={uniqueDepartments} 
+            setStatusMessage={setStatusMessage} 
+          />
         )}
       </main>
 

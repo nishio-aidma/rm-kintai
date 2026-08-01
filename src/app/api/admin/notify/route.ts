@@ -96,7 +96,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: "MEMBERS APIトークンが設定されていません。" }, { status: 400 });
     }
 
-    // 2. 送信本文の確定（画面から指定がなければDBのmanualReminderテンプレートを使用）
+    // 2. 送信本文の確定
     const defaultTemplate = settings.manualReminder?.message || "【ダコック個別催促】稼働記録が【未提出】状態です。内容を確認の上、システムより提出ボタンの押下をお願いいたします。\n[自分の記録URL]";
     let baseMessage = customMessage || defaultTemplate;
 
@@ -124,14 +124,19 @@ export async function POST(request: Request) {
           continue;
         }
 
-        // チャットルームのメンバー一覧を取得して名前から内部ID（メンションID）を照合
+        // チャットルームのメンバー一覧を取得
         const roomMembers = await getRoomMembers(roomId, token);
         const toIds: string[] = [];
 
         memberNames.forEach((name) => {
-          const cleanName = name.replace(/[\s\u3000]/g, "");
-          if (roomMembers[cleanName]) {
-            toIds.push(roomMembers[cleanName]);
+          // アプリ側の名前からスペースを消す（例：「村上 友美」→「村上友美」）
+          const cleanAppName = name.replace(/[\s\u3000]/g, "");
+          
+          // 💡 【核心の修正】完全一致ではなく、「MEMBERS側の名前に、アプリ側のフルネームが含まれているか（部分一致）」で探す
+          const matchedKey = Object.keys(roomMembers).find(memName => memName.includes(cleanAppName));
+          
+          if (matchedKey) {
+            toIds.push(roomMembers[matchedKey]);
           }
         });
 

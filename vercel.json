@@ -1,8 +1,16 @@
 {
-    "rewrites": [
-      {
-        "source": "/api/:path*",
-        "destination": "/src/app/api/:path*"
-      }
-    ]
-  }
+  "crons": [
+    {
+      "path": "/api/cron/reminders?type=unverified",
+      "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/reminders?type=submission",
+      "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/reminders?type=missing_end",
+      "schedule": "0 12 * * *"
+    }
+  ]
+}

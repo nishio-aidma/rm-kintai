@@ -42,10 +42,8 @@ export default function TabSummary({
   const [isNotifying, setIsNotifying] = useState(false);
   const [selectedEmails, setSelectedEmails] = useState<string[]>([]);
 
-  // 親ファイルを汚さず、このコンポーネント単体で安全にownerを識別するためのステート
   const [currentUserRole, setCurrentUserRole] = useState<"admin" | "owner">("admin");
 
-  // 一括催促通知用のリッチカスタムモーダルステート
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalData, setModalData] = useState<{
     targetCount: number;
@@ -53,7 +51,6 @@ export default function TabSummary({
     onConfirm: () => Promise<void>;
   }>({ targetCount: 0, targets: [], onConfirm: async () => {} });
 
-  // 画面起動時にセッションをチェックして権限を判定
   useEffect(() => {
     const sessionStr = localStorage.getItem("session");
     if (sessionStr) {
@@ -108,7 +105,6 @@ export default function TabSummary({
     ])
   ) as string[];
 
-  // 所属別モードの集計用オブジェクト
   const departmentSummaries: { 
     [key: string]: { 
       memberCount: number; 
@@ -202,11 +198,9 @@ export default function TabSummary({
     }
   };
 
-  // 💡 【大修正】一括催促通知送信：複数チーム・メンバーメンション連動ロジック
   const handleNotifySelected = async () => {
     const targetEmails = displayedEmails.filter(email => selectedEmails.includes(email));
 
-    // 未提出者のみを抽出して名前と所属チームを取得
     const unsubmittedTargets = targetEmails
       .filter(email => {
         const userRecords = (attendanceRecords as AdminAttendanceRecord[]).filter(r => r.workDate.startsWith(selectedMonth) && r.email === email);
@@ -219,12 +213,10 @@ export default function TabSummary({
       }));
 
     if (selectedEmails.length === 0) {
-      alert("左側のチェックボックス（☑）で通知を送りたいメンバーを一人以上選択してください。");
       return;
     }
 
     if (unsubmittedTargets.length === 0) {
-      alert("選択された対象の中に、現在【未提出】状態の人は一人もいません！");
       return;
     }
 
@@ -234,7 +226,6 @@ export default function TabSummary({
       onConfirm: async () => {
         setIsNotifying(true);
         try {
-          // 💡 裏側APIへ対象者の名前と所属チームの配列（targets）を引き渡す
           const res = await fetch("/api/admin/notify", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -247,10 +238,9 @@ export default function TabSummary({
             throw new Error(resData.message || "通知通信に失敗しました。");
           }
 
-          alert("🚀 MEMBERSの各該当チームチャットへ、個人メンション付きの個別催促通知を送信しました！");
           setSelectedEmails([]);
         } catch (err: any) {
-          alert(`エラー：催促通知の送信に失敗しました。\n${err.message || ""}`);
+          console.error("催促通知エラー:", err);
         } finally {
           setIsNotifying(false);
         }
@@ -463,7 +453,6 @@ export default function TabSummary({
         )
       )}
 
-      {/* 一括催促用カスタムモーダル */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[999] animate-fadeIn">
           <div className="bg-white rounded-3xl p-6 max-w-sm w-full mx-4 shadow-2xl border border-gray-100 text-center space-y-4 animate-scaleUp">

@@ -176,7 +176,6 @@ export default function AdminPage() {
     sessionStorage.setItem("adminActiveTab", tab);
   };
 
-  // 💡 【核心の修正】大文字小文字・スペースの違いを完全に吸収してメンバー情報を検索する
   const getMemberMeta = (email: string) => {
     const cleanEmail = (email || "").trim().toLowerCase();
     const matched = members.find(m => 
@@ -571,9 +570,12 @@ export default function AdminPage() {
           />
         )}
         
+        {/* 💡 【プロップス追加】TabMembers に attendanceRecords を渡して名前照合・ログイン状況判定を可能にする */}
         {activeTab === "members" && (userRole === "owner" || (userRole === "admin" && adminAllowedTabs.includes("members"))) && (
           <TabMembers 
             members={filteredMembers} 
+            attendanceRecords={attendanceRecords}
+            getMemberMeta={getMemberMeta}
             editingDeptEmail={editingDeptEmail} 
             setEditingDeptEmail={setEditingDeptEmail} 
             inputDeptText={inputDeptText} 

@@ -363,7 +363,7 @@ export default function RecordsPage() {
               </div>
             ) : (
               <div className="bg-amber-50 text-amber-700 font-semibold py-2.5 px-6 rounded-xl text-xs inline-block border border-amber-100">
-                ⏳ 提出不可：未確認の稼働があります。すべてのセクションの「確認する」ボタンを押して確定させてください。
+                ⏳ 提出不可：未確認の稼働があります。すべての稼働記録を確認し間違いがなければ「確認する」ボタンを押して確定させてください。
               </div>
             )}
           </div>

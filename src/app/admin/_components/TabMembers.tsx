@@ -6,6 +6,9 @@ import { useRouter } from "next/navigation";
 
 interface TabMembersProps {
   members: MemberInfo[];
+  // 💡 型エラー解消のため、attendanceRecords と getMemberMeta を追加
+  attendanceRecords?: any[];
+  getMemberMeta?: (email: string) => { name: string; managementNumber: string; hourlyRate: number; department: string };
   editingDeptEmail: string | null;
   setEditingDeptEmail: (email: string | null) => void;
   inputDeptText: string;
@@ -18,6 +21,8 @@ interface TabMembersProps {
 
 export default function TabMembers({
   members,
+  attendanceRecords = [],
+  getMemberMeta,
   editingDeptEmail,
   setEditingDeptEmail,
   handleSaveDepartment,
@@ -155,6 +160,84 @@ export default function TabMembers({
     });
   };
 
+  // 💡 氏名（名前）を照合キーにして打刻レコードから最終ログイン/活動日時を割り出し、6段階バッジを生成する関数
+  const renderLoginStatusBadge = (member: MemberInfo) => {
+    const cleanMemberName = (member.name || "").replace(/[\s\u3000]/g, "");
+
+    // 氏名（名前）で打刻レコードを検索（同姓同名がない前提）
+    const userRecords = attendanceRecords.filter((r: any) => {
+      const recUserName = (r.userName || "").replace(/[\s\u3000]/g, "");
+      if (recUserName && recUserName === cleanMemberName) return true;
+
+      if (getMemberMeta) {
+        const metaName = (getMemberMeta(r.email)?.name || "").replace(/[\s\u3000]/g, "");
+        if (metaName && metaName === cleanMemberName) return true;
+      }
+
+      const cleanMemberEmail = (member.email || "").trim().toLowerCase();
+      const cleanMemberLoginEmail = (member.loginEmail || "").trim().toLowerCase();
+      const recEmail = (r.email || "").trim().toLowerCase();
+      if (recEmail && (recEmail === cleanMemberEmail || recEmail === cleanMemberLoginEmail)) return true;
+
+      return false;
+    });
+
+    if (userRecords.length === 0) {
+      return (
+        <span className="text-[10px] bg-gray-100 text-gray-400 border border-gray-200 px-2 py-0.5 rounded-full font-bold select-none inline-block">
+          ⚪ 未ログイン
+        </span>
+      );
+    }
+
+    // 最新の活動日付を取得
+    const sorted = [...userRecords].sort((a, b) => {
+      const timeA = `${a.workDate} ${a.startTime || "00:00"}`;
+      const timeB = `${b.workDate} ${b.startTime || "00:00"}`;
+      return timeB.localeCompare(timeA);
+    });
+
+    const latest = sorted[0];
+    const latestDateStr = `${latest.workDate}T${latest.startTime && latest.startTime !== "---" ? latest.startTime : "00:00"}:00`;
+    const latestDate = new Date(latestDateStr);
+    const now = new Date();
+
+    const diffMs = now.getTime() - latestDate.getTime();
+    const diffHours = diffMs / (1000 * 60 * 60);
+
+    if (diffHours <= 24) {
+      return (
+        <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full font-black select-none inline-block">
+          🟢 24時間以内ログイン
+        </span>
+      );
+    } else if (diffHours <= 24 * 3) {
+      return (
+        <span className="text-[10px] bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full font-black select-none inline-block">
+          🔵 3日以内ログイン
+        </span>
+      );
+    } else if (diffHours <= 24 * 7) {
+      return (
+        <span className="text-[10px] bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-black select-none inline-block">
+          🟡 7日以内ログイン
+        </span>
+      );
+    } else if (diffHours <= 24 * 14) {
+      return (
+        <span className="text-[10px] bg-orange-50 text-orange-700 border border-orange-200 px-2 py-0.5 rounded-full font-black select-none inline-block">
+          🟠 14日以内ログイン
+        </span>
+      );
+    } else {
+      return (
+        <span className="text-[10px] bg-rose-50 text-rose-700 border border-rose-200 px-2 py-0.5 rounded-full font-black select-none inline-block">
+          🔴 15日以上ログインなし
+        </span>
+      );
+    }
+  };
+
   return (
     <div className="space-y-4 animate-fadeIn">
       
@@ -242,7 +325,8 @@ export default function TabMembers({
             <tr className="border-b border-gray-100 text-gray-400 font-bold bg-gray-50/50 text-[11px]">
               <th className="py-2 pl-3">管理番号</th>
               <th className="py-2">氏名</th>
-              <th className="py-2">連絡先メール / 初回ログインメール</th>
+              {/* 💡 見出しを「ログイン状況」に変更 */}
+              <th className="py-2">ログイン状況</th>
               <th className="py-2">所属チーム（部署）</th>
               <th className="py-2 w-24 text-center">操作</th>
               
@@ -255,28 +339,18 @@ export default function TabMembers({
             {members.map((member) => {
               const isEditing = editingDeptEmail === member.email;
 
-              // 💡 一時記憶がある場合はそれを使い、無い場合はFirebaseから届いた初期値を使う
+              // 一時記憶がある場合はそれを使い、無い場合はFirebaseから届いた初期値を使う
               const currentRole = localRoles[member.email] || member.role;
               const currentIsOwnerProxy = localProxies[member.email] !== undefined ? localProxies[member.email] : !!member.isOwnerProxy;
-
-              // 🔑 初回ログインメール自動表示
-              const loginEmailLabel = member.loginEmail ? (
-                <span className="text-[11px] bg-emerald-50 text-emerald-700 border border-emerald-100 px-1.5 py-0.5 rounded font-mono ml-2 inline-block">
-                  🔑 {member.loginEmail}
-                </span>
-              ) : (
-                <span className="text-[10px] bg-gray-50 text-gray-400 px-1.5 py-0.5 rounded font-medium ml-2 italic inline-block">
-                  未ログイン
-                </span>
-              );
 
               return (
                 <tr key={member.email} className="hover:bg-gray-50/30 transition-colors">
                   <td className="py-2.5 pl-3 tabular-nums text-gray-400 font-mono">{member.managementNumber}</td>
                   <td className="py-2.5 font-bold text-gray-900 text-sm">{member.name}</td>
-                  <td className="py-2.5 text-gray-500 font-medium flex items-center flex-wrap gap-y-1">
-                    <span className="font-mono select-all">{member.email}</span>
-                    {loginEmailLabel}
+                  
+                  {/* 💡 不要なメールアドレス表記を削除し、ログイン状態バッジのみを表示 */}
+                  <td className="py-2.5 text-gray-500 font-medium">
+                    {renderLoginStatusBadge(member)}
                   </td>
                   
                   {/* 所属部署セル */}

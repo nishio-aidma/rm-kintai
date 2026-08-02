@@ -157,7 +157,7 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
     }
   };
 
-  // 💡 【表紙タイトル改修】表紙を「リレーションマーケティング事業部\n在宅チーム組織図」に変更
+  // 💡 【修正】親チームと同名の子データ、および空の子データを完全に除外して正確な子階層のみ出力する
   const handleExportPPTX = async () => {
     setIsExporting(true);
     try {
@@ -181,7 +181,7 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
       const todayStr = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, "0")}${String(today.getDate()).padStart(2, "0")}`;
       const dateStr = `${today.getFullYear()}年${String(today.getMonth() + 1).padStart(2, "0")}月${String(today.getDate())}日 改訂`;
 
-      // 1. 表紙スライド（タイトルテキストを「リレーションマーケティング事業部 在宅チーム組織図」に修正）
+      // 1. 表紙スライド
       const slide1 = pptx.addSlide();
       slide1.background = { color: "005088" };
       slide1.addText("リレーションマーケティング事業部\n在宅チーム組織図", {
@@ -224,7 +224,15 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
         const deptMembers = getMembersForDepartment(deptName);
         const currentSub = subTeams[deptName] || [];
 
-        const activeSubTeams = currentSub.filter(s => s.name && s.name.trim() !== "" && s.members && s.members.length > 0);
+        // 💡 【核心の修正】親チームと同名でなく、かつ実際にメンバーが1名以上登録されている本当の子チームのみを抽出
+        const activeSubTeams = currentSub.filter(s => {
+          if (!s.name || !s.name.trim()) return false;
+          // 自分自身（親チーム名）と完全に一致するデータは除外
+          if (s.name.trim() === deptName.trim()) return false;
+          // メンバーが登録されている場合のみ子チームとして表示
+          return s.members && s.members.length > 0;
+        });
+
         const leaderNames = leaders.length > 0 ? leaders.map(l => l.name).join(", ") : "未設定";
 
         // カード外枠
@@ -251,6 +259,7 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
           fontSize: 8, color: "1E293B", bold: true, fontFace: "Meiryo"
         });
 
+        // 💡 条件に合致した「本当の子チーム」がある場合のみ表示
         if (activeSubTeams.length > 0) {
           const subNames = activeSubTeams.map(s => s.name).join(", ");
           slideOverview.addText(`↳ 子階層: ${subNames}`, {

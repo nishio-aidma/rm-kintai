@@ -157,7 +157,7 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
     }
   };
 
-  // 💡 【改修】空（メンバー0人）の子チームはスライドに非表示にする処理
+  // 💡 【表紙タイトル改修】表紙を「リレーションマーケティング事業部\n在宅チーム組織図」に変更
   const handleExportPPTX = async () => {
     setIsExporting(true);
     try {
@@ -181,15 +181,15 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
       const todayStr = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, "0")}${String(today.getDate()).padStart(2, "0")}`;
       const dateStr = `${today.getFullYear()}年${String(today.getMonth() + 1).padStart(2, "0")}月${String(today.getDate())}日 改訂`;
 
-      // 1. 表紙スライド
+      // 1. 表紙スライド（タイトルテキストを「リレーションマーケティング事業部 在宅チーム組織図」に修正）
       const slide1 = pptx.addSlide();
       slide1.background = { color: "005088" };
-      slide1.addText("RM 組織図", {
-        x: 0.5, y: 1.8, w: 9.0, h: 1.2,
-        fontSize: 44, color: "FFFFFF", bold: true, fontFace: "Meiryo", align: "center"
+      slide1.addText("リレーションマーケティング事業部\n在宅チーム組織図", {
+        x: 0.5, y: 1.5, w: 9.0, h: 1.6,
+        fontSize: 32, color: "FFFFFF", bold: true, fontFace: "Meiryo", align: "center", lineSpacing: 42
       });
       slide1.addText(dateStr, {
-        x: 0.5, y: 3.2, w: 9.0, h: 0.4,
+        x: 0.5, y: 3.4, w: 9.0, h: 0.4,
         fontSize: 16, color: "11CAA0", fontFace: "Meiryo", align: "center"
       });
 
@@ -199,7 +199,7 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
       const slideOverview = pptx.addSlide();
       addCommonHeader(slideOverview);
 
-      slideOverview.addText("🗺️ RM 全体組織マップ（チーム一覧概要）", {
+      slideOverview.addText("🗺️ 全体組織マップ（チーム一覧概要）", {
         x: 0.5, y: 0.58, w: 9.0, h: 0.45,
         fontSize: 18, color: "005088", bold: true, fontFace: "Meiryo"
       });
@@ -224,9 +224,7 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
         const deptMembers = getMembersForDepartment(deptName);
         const currentSub = subTeams[deptName] || [];
 
-        // 💡 【核心の修正】メンバーが1人以上登録されている有効な子チームだけを抽出
         const activeSubTeams = currentSub.filter(s => s.name && s.name.trim() !== "" && s.members && s.members.length > 0);
-
         const leaderNames = leaders.length > 0 ? leaders.map(l => l.name).join(", ") : "未設定";
 
         // カード外枠
@@ -253,7 +251,6 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
           fontSize: 8, color: "1E293B", bold: true, fontFace: "Meiryo"
         });
 
-        // 💡 メンバーが存在する有効な子チームがある場合のみ表示
         if (activeSubTeams.length > 0) {
           const subNames = activeSubTeams.map(s => s.name).join(", ");
           slideOverview.addText(`↳ 子階層: ${subNames}`, {
@@ -398,7 +395,7 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
       });
 
       // @ts-ignore
-      await pptx.writeFile({ fileName: `RM_組織図_${todayStr}.pptx` });
+      await pptx.writeFile({ fileName: `リレーションマーケティング事業部_在宅チーム組織図_${todayStr}.pptx` });
       setToastMessage({ text: "📥 全体マップ付き組織図スライドを出力しました！", type: "success" });
     } catch (e) {
       console.error(e);

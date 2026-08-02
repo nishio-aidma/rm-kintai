@@ -157,7 +157,7 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
     }
   };
 
-  // 💡 【完璧枠収まり改修】人数に応じた自動レイアウト調整で縦・横の枠はみ出しを100%防止
+  // 💡 【右端はみ出し完全解消】X座標と幅（colW）を再計算し、スライド枠内に完璧に収める処理
   const handleExportPPTX = async () => {
     setIsExporting(true);
     try {
@@ -167,11 +167,11 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
 
       const addCommonHeader = (slide: any) => {
         slide.addText("緊急連絡先：西尾（070-3169-9955）/ 伊藤（070-5553-4180）", {
-          x: 0.5, y: 0.15, w: 12.3, h: 0.25,
+          x: 0.5, y: 0.15, w: 11.5, h: 0.25,
           fontSize: 11, color: "FF4B4B", bold: true, fontFace: "Meiryo", align: "left"
         });
         slide.addText("※ 各チームリーダーに連絡ができない状態の場合は、社員まで、SMSをください", {
-          x: 0.5, y: 0.38, w: 12.3, h: 0.2,
+          x: 0.5, y: 0.38, w: 11.5, h: 0.2,
           fontSize: 8.5, color: "64748B", fontFace: "Meiryo", align: "left"
         });
       };
@@ -199,10 +199,10 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
 
         // 部署名見出し
         slide.addText(`🏢 チーム組織図 : ${deptName}`, {
-          x: 0.5, y: 0.65, w: 12.0, h: 0.5,
+          x: 0.5, y: 0.65, w: 11.5, h: 0.5,
           fontSize: 20, color: "005088", bold: true, fontFace: "Meiryo"
         });
-        slide.addShape("rect" as any, { x: 0.5, y: 1.2, w: 12.3, h: 0.03, fill: { color: "11CAA0" } });
+        slide.addShape("rect" as any, { x: 0.5, y: 1.2, w: 11.8, h: 0.03, fill: { color: "11CAA0" } });
 
         // 重複排除ロジック
         const rawLeaders = getLeadersForDepartment(deptName);
@@ -220,7 +220,7 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
 
         // --- 左側：チーム責任者（リーダー） ---
         slide.addText("👑 チーム責任者（リーダー）", {
-          x: 0.5, y: 1.35, w: 4.2, h: 0.3,
+          x: 0.5, y: 1.35, w: 4.0, h: 0.3,
           fontSize: 12, color: "005088", bold: true, fontFace: "Meiryo"
         });
 
@@ -228,41 +228,40 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
           leaders.forEach((leader, idx) => {
             const cardY = 1.7 + idx * 0.75;
             slide.addShape("roundRect" as any, {
-              x: 0.5, y: cardY, w: 4.2, h: 0.68,
+              x: 0.5, y: cardY, w: 4.0, h: 0.68,
               fill: { color: "FFF8E7" }, line: { color: "FCD34D", width: 1 }
             });
             slide.addText(leader.name, {
-              x: 0.65, y: cardY + 0.08, w: 3.9, h: 0.25,
+              x: 0.65, y: cardY + 0.08, w: 3.7, h: 0.25,
               fontSize: 12, color: "111827", bold: true, fontFace: "Meiryo"
             });
             slide.addText(`Mail: ${leader.email}`, {
-              x: 0.65, y: cardY + 0.35, w: 3.9, h: 0.2,
+              x: 0.65, y: cardY + 0.35, w: 3.7, h: 0.2,
               fontSize: 8.5, color: "4B5563", fontFace: "Consolas"
             });
           });
         } else {
           slide.addText("（※リーダー未設定）", {
-            x: 0.5, y: 1.7, w: 4.2, h: 0.3,
+            x: 0.5, y: 1.7, w: 4.0, h: 0.3,
             fontSize: 10.5, color: "94A3B8", fontFace: "Meiryo", italic: true
           });
         }
 
-        // --- 右側：チーム所属メンバー一覧 ---
+        // --- 右側：チーム所属メンバー一覧（右端はみ出し完全防御） ---
         slide.addText(`👥 チーム所属メンバー一覧（${displayMembers.length}名）`, {
-          x: 5.0, y: 1.35, w: 7.8, h: 0.3,
+          x: 4.8, y: 1.35, w: 7.4, h: 0.3,
           fontSize: 12, color: "005088", bold: true, fontFace: "Meiryo"
         });
 
         if (displayMembers.length > 0) {
-          // 💡 人数が8名より多い場合は「自動的に2列（4カラム）」にして縦はみ出しを確実に防止
           const isMultiColumn = displayMembers.length > 8;
 
           let tableRows: any[] = [];
           let colWidths: number[] = [];
 
           if (isMultiColumn) {
-            // 2列（4カラム）構成: [名前1, メール1, 名前2, メール2]
-            colWidths = [1.3, 2.5, 1.3, 2.5]; // 合計 7.6 インチ
+            // 💡 2列（4カラム）構成: 計 7.0 インチ（右端 4.8 + 7.0 = 11.8 インチで枠内クリア）
+            colWidths = [1.2, 2.3, 1.2, 2.3];
             const halfLength = Math.ceil(displayMembers.length / 2);
 
             for (let i = 0; i < halfLength; i++) {
@@ -285,8 +284,8 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
               ]);
             }
           } else {
-            // 1列（2カラム）構成: [名前, メール]
-            colWidths = [1.8, 5.8]; // 合計 7.6 インチ
+            // 💡 1列（2カラム）構成: 計 7.2 インチ（右端 4.8 + 7.2 = 12.0 インチで枠内クリア）
+            colWidths = [1.8, 5.4];
             tableRows = displayMembers.map(m => [
               { 
                 text: m.name, 
@@ -311,16 +310,16 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
           }
 
           slide.addTable(tableRows, {
-            x: 5.0, y: 1.7, w: 7.8,
+            x: 4.8, y: 1.7, w: 7.4,
             colW: colWidths,
             border: { type: "solid", color: "E2E8F0", pt: 0.5 },
             fill: { color: "F8FAFC" },
             valign: "middle",
-            autoPage: false, // 自前でサイズ調整するため改ページオフ
+            autoPage: false,
           } as any);
         } else {
           slide.addText("（所属メンバーなし）", {
-            x: 5.0, y: 1.7, w: 7.8, h: 0.3,
+            x: 4.8, y: 1.7, w: 7.4, h: 0.3,
             fontSize: 10.5, color: "94A3B8", fontFace: "Meiryo", italic: true
           });
         }

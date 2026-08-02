@@ -407,7 +407,6 @@ export const attendanceRepository = {
     }
   },
 
-  // 💡 【核心の修正】全メンバー取得処理：保護枠（fixed_members）の正しい情報を最優先で合体上書きする
   getAllMembers: async (): Promise<MemberInfo[]> => {
     try {
       const [membersSnapshot, fixedSnapshot] = await Promise.all([
@@ -417,7 +416,6 @@ export const attendanceRepository = {
 
       const allMembersMap = new Map<string, MemberInfo>();
 
-      // 1. まず通常枠のメンバーを読み込む
       membersSnapshot.forEach((docSnap) => {
         const data = docSnap.data();
         const rawEmail = docSnap.id;
@@ -445,7 +443,6 @@ export const attendanceRepository = {
         });
       });
 
-      // 2. 次に固定保護枠（fixed_members）を読み込み、通常枠の不完全データを【最優先で上書き統合】する
       fixedSnapshot.forEach((docSnap) => {
         const data = docSnap.data();
         const rawEmail = docSnap.id;
@@ -602,23 +599,19 @@ export const attendanceRepository = {
     }
   },
 
+  // 💡 【根本解決の修正】偽の自作子チーム生成ロジックを完全廃止。本当にFirestoreに保存されたデータのみ取得する
   getSubTeams: async (parentDept: string) => {
     try {
-      const q = query(
-        collection(db, "members"),
-        where("department", "==", parentDept)
-      );
-      const querySnapshot = await getDocs(q);
-      const members = querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
+      const docRef = doc(db, "org_sub_teams", parentDept);
+      const snap = await getDoc(docRef);
 
-      return [{
-        id: parentDept,
-        name: parentDept,
-        members: members
-      }];
+      if (snap.exists()) {
+        const data = snap.data();
+        return data.subTeams || [];
+      }
+
+      // まだ子チームが1つも作られていない場合は素直に空の配列（0件）を返す
+      return [];
     } catch (error) {
       console.error(`【レポジトリ確認】${parentDept} 取得エラー:`, error);
       return [];
@@ -780,7 +773,7 @@ export const attendanceRepository = {
         manualReminder: {
           enabled: true,
           time: "",
-          message: "【ダコック個別催促】稼働記録が【未提出】状態です。内容を確認の上、システムより提出ボタンの押下をお願いいたします。\n[自分の記録URL]",
+          message: "【ダコック個別催促】稼働記録が【未提出】状態です。内容を確認の上, システムより提出ボタンの押下をお願いいたします。\n[自分の記録URL]",
         },
         teamRoomIds: {},
         apiToken: "",

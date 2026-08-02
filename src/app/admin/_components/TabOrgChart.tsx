@@ -157,7 +157,7 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
     }
   };
 
-  // 💡 【上下配置完全改修】横幅9.0インチに要素をすべて収め、はみ出しをゼロにする
+  // 💡 【新機能追加】スライドの先頭に「全体組織構造ツリー（概要）」ページを自動生成する
   const handleExportPPTX = async () => {
     setIsExporting(true);
     try {
@@ -165,7 +165,7 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
       // @ts-ignore
       pptx.layout = "LAYOUT_16x9";
 
-      // 共通ヘッダー（幅9.0インチに統一）
+      // 共通ヘッダー（幅9.0インチ）
       const addCommonHeader = (slide: any) => {
         slide.addText("緊急連絡先：西尾（070-3169-9955）/ 伊藤（070-5553-4180）", {
           x: 0.5, y: 0.15, w: 9.0, h: 0.22,
@@ -177,6 +177,10 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
         });
       };
 
+      const today = new Date();
+      const todayStr = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, "0")}${String(today.getDate()).padStart(2, "0")}`;
+      const dateStr = `${today.getFullYear()}年${String(today.getMonth() + 1).padStart(2, "0")}月${String(today.getDate())}日 改訂`;
+
       // 1. 表紙スライド
       const slide1 = pptx.addSlide();
       slide1.background = { color: "005088" };
@@ -184,26 +188,93 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
         x: 0.5, y: 1.8, w: 9.0, h: 1.2,
         fontSize: 44, color: "FFFFFF", bold: true, fontFace: "Meiryo", align: "center"
       });
-      const today = new Date();
-      const dateStr = `${today.getFullYear()}年${String(today.getMonth() + 1).padStart(2, "0")}月${String(today.getDate())}日 改訂`;
       slide1.addText(dateStr, {
         x: 0.5, y: 3.2, w: 9.0, h: 0.4,
         fontSize: 16, color: "11CAA0", fontFace: "Meiryo", align: "center"
       });
 
-      // 2. 各部署スライド生成（上下配置モード）
       const cleanDeptsForExport = displayDepartments.map(d => d?.trim()).filter(Boolean);
 
+      // ----------------------------------------------------
+      // 💡 2. 【新規】全体組織ツリー概要スライド（全チーム一覧カード）
+      // ----------------------------------------------------
+      const slideOverview = pptx.addSlide();
+      addCommonHeader(slideOverview);
+
+      slideOverview.addText("🗺️ RM 全体組織マップ（チーム一覧概要）", {
+        x: 0.5, y: 0.58, w: 9.0, h: 0.45,
+        fontSize: 18, color: "005088", bold: true, fontFace: "Meiryo"
+      });
+      slideOverview.addShape("rect" as any, { x: 0.5, y: 1.05, w: 9.0, h: 0.03, fill: { color: "11CAA0" } });
+
+      // グリッド計算 (4列配置)
+      const cols = 4;
+      const cardW = 2.12; // カード幅
+      const cardH = 1.15; // カード高さ
+      const gapX = 0.17;  // 横隙間
+      const gapY = 0.15;  // 縦隙間
+      const startX = 0.5;
+      const startY = 1.25;
+
+      cleanDeptsForExport.forEach((deptName, idx) => {
+        const colIdx = idx % cols;
+        const rowIdx = Math.floor(idx / cols);
+
+        const cardX = startX + colIdx * (cardW + gapX);
+        const cardY = startY + rowIdx * (cardH + gapY);
+
+        const leaders = getLeadersForDepartment(deptName);
+        const deptMembers = getMembersForDepartment(deptName);
+        const currentSub = subTeams[deptName] || [];
+
+        const leaderNames = leaders.length > 0 ? leaders.map(l => l.name).join(", ") : "未設定";
+
+        // カード外枠
+        slideOverview.addShape("roundRect" as any, {
+          x: cardX, y: cardY, w: cardW, h: cardH,
+          fill: { color: "F8FAFC" }, line: { color: "CBD5E1", width: 1 }
+        });
+
+        // チーム名ヘッダー枠
+        slideOverview.addShape("rect" as any, {
+          x: cardX, y: cardY, w: cardW, h: 0.32,
+          fill: { color: "005088" }
+        });
+
+        // チーム名 ＆ 所属人数
+        slideOverview.addText(`${deptName} (${deptMembers.length}名)`, {
+          x: cardX + 0.08, y: cardY + 0.04, w: cardW - 0.16, h: 0.24,
+          fontSize: 8.5, color: "FFFFFF", bold: true, fontFace: "Meiryo"
+        });
+
+        // リーダー表示
+        slideOverview.addText(`👑 責任者: ${leaderNames}`, {
+          x: cardX + 0.08, y: cardY + 0.38, w: cardW - 0.16, h: 0.35,
+          fontSize: 8, color: "1E293B", bold: true, fontFace: "Meiryo"
+        });
+
+        // 子チーム情報（あれば表示）
+        if (currentSub.length > 0) {
+          const subNames = currentSub.map(s => s.name).join(", ");
+          slideOverview.addText(`↳ 子階層: ${subNames}`, {
+            x: cardX + 0.08, y: cardY + 0.78, w: cardW - 0.16, h: 0.28,
+            fontSize: 7.5, color: "0D9488", fontFace: "Meiryo"
+          });
+        }
+      });
+
+      // ----------------------------------------------------
+      // 3. 各部署の個別詳細スライド生成
+      // ----------------------------------------------------
       cleanDeptsForExport.forEach(deptName => {
         const slide = pptx.addSlide();
         addCommonHeader(slide);
 
-        // 部署名見出し（幅 9.0 インチ）
+        // 部署名見出し
         slide.addText(`🏢 チーム組織図 : ${deptName}`, {
-          x: 0.5, y: 0.58, w: 9.0, h: 0.45,
+          x: 0.5, y: 0.65, w: 9.0, h: 0.45,
           fontSize: 18, color: "005088", bold: true, fontFace: "Meiryo"
         });
-        // 緑色の区切り線（幅 9.0 インチでスライド右端 X:9.5 にピッタリ合わせる）
         slide.addShape("rect" as any, { x: 0.5, y: 1.05, w: 9.0, h: 0.03, fill: { color: "11CAA0" } });
 
         // 重複排除ロジック
@@ -220,9 +291,7 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
           ).values()
         );
 
-        // ----------------------------------------------------
-        // 【上段】チーム責任者（リーダー）エリア（Y: 1.15 〜）
-        // ----------------------------------------------------
+        // 【上段】チーム責任者（リーダー）
         slide.addText("👑 チーム責任者（リーダー）", {
           x: 0.5, y: 1.15, w: 9.0, h: 0.25,
           fontSize: 11, color: "005088", bold: true, fontFace: "Meiryo"
@@ -250,9 +319,7 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
           nextY += 0.38;
         }
 
-        // ----------------------------------------------------
-        // 【下段】チーム所属メンバー一覧エリア（Y: nextY + 0.1 〜）
-        // ----------------------------------------------------
+        // 【下段】チーム所属メンバー一覧
         const memberHeaderY = Math.max(nextY + 0.08, 2.05);
 
         slide.addText(`👥 チーム所属メンバー一覧（${displayMembers.length}名）`, {
@@ -263,14 +330,12 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
         const tableY = memberHeaderY + 0.3;
 
         if (displayMembers.length > 0) {
-          // 5名以上の場合は2列（4カラム）、4名以下の場合は1列（2カラム）でレイアウト
           const isMultiColumn = displayMembers.length >= 5;
 
           let tableRows: any[] = [];
           let colWidths: number[] = [];
 
           if (isMultiColumn) {
-            // 2列構成: [氏名1 (1.8in), メール1 (2.7in) || 氏名2 (1.8in), メール2 (2.7in)] ➔ 合計 9.0 インチ
             colWidths = [1.8, 2.7, 1.8, 2.7];
             const halfLength = Math.ceil(displayMembers.length / 2);
 
@@ -294,7 +359,6 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
               ]);
             }
           } else {
-            // 1列構成: [氏名 (2.5in), メール (6.5in)] ➔ 合計 9.0 インチ
             colWidths = [2.5, 6.5];
             tableRows = displayMembers.map(m => [
               { 
@@ -335,10 +399,9 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
         }
       });
 
-      const todayStr = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, "0")}${String(today.getDate()).padStart(2, "0")}`;
       // @ts-ignore
       await pptx.writeFile({ fileName: `RM_組織図_${todayStr}.pptx` });
-      setToastMessage({ text: "📥 組織図スライドを出力しました！", type: "success" });
+      setToastMessage({ text: "📥 全体マップ付き組織図スライドを出力しました！", type: "success" });
     } catch (e) {
       console.error(e);
       setToastMessage({ text: "❌ 組織図の生成中にエラーが発生しました。", type: "error" });

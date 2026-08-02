@@ -157,7 +157,7 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
     }
   };
 
-  // 💡 【新機能追加】スライドの先頭に「全体組織構造ツリー（概要）」ページを自動生成する
+  // 💡 【改修】空（メンバー0人）の子チームはスライドに非表示にする処理
   const handleExportPPTX = async () => {
     setIsExporting(true);
     try {
@@ -165,7 +165,7 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
       // @ts-ignore
       pptx.layout = "LAYOUT_16x9";
 
-      // 共通ヘッダー（幅9.0インチ）
+      // 共通ヘッダー
       const addCommonHeader = (slide: any) => {
         slide.addText("緊急連絡先：西尾（070-3169-9955）/ 伊藤（070-5553-4180）", {
           x: 0.5, y: 0.15, w: 9.0, h: 0.22,
@@ -195,9 +195,7 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
 
       const cleanDeptsForExport = displayDepartments.map(d => d?.trim()).filter(Boolean);
 
-      // ----------------------------------------------------
-      // 💡 2. 【新規】全体組織ツリー概要スライド（全チーム一覧カード）
-      // ----------------------------------------------------
+      // 2. 全体組織ツリー概要スライド
       const slideOverview = pptx.addSlide();
       addCommonHeader(slideOverview);
 
@@ -207,12 +205,11 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
       });
       slideOverview.addShape("rect" as any, { x: 0.5, y: 1.05, w: 9.0, h: 0.03, fill: { color: "11CAA0" } });
 
-      // グリッド計算 (4列配置)
       const cols = 4;
-      const cardW = 2.12; // カード幅
-      const cardH = 1.15; // カード高さ
-      const gapX = 0.17;  // 横隙間
-      const gapY = 0.15;  // 縦隙間
+      const cardW = 2.12;
+      const cardH = 1.15;
+      const gapX = 0.17;
+      const gapY = 0.15;
       const startX = 0.5;
       const startY = 1.25;
 
@@ -226,6 +223,9 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
         const leaders = getLeadersForDepartment(deptName);
         const deptMembers = getMembersForDepartment(deptName);
         const currentSub = subTeams[deptName] || [];
+
+        // 💡 【核心の修正】メンバーが1人以上登録されている有効な子チームだけを抽出
+        const activeSubTeams = currentSub.filter(s => s.name && s.name.trim() !== "" && s.members && s.members.length > 0);
 
         const leaderNames = leaders.length > 0 ? leaders.map(l => l.name).join(", ") : "未設定";
 
@@ -253,9 +253,9 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
           fontSize: 8, color: "1E293B", bold: true, fontFace: "Meiryo"
         });
 
-        // 子チーム情報（あれば表示）
-        if (currentSub.length > 0) {
-          const subNames = currentSub.map(s => s.name).join(", ");
+        // 💡 メンバーが存在する有効な子チームがある場合のみ表示
+        if (activeSubTeams.length > 0) {
+          const subNames = activeSubTeams.map(s => s.name).join(", ");
           slideOverview.addText(`↳ 子階層: ${subNames}`, {
             x: cardX + 0.08, y: cardY + 0.78, w: cardW - 0.16, h: 0.28,
             fontSize: 7.5, color: "0D9488", fontFace: "Meiryo"
@@ -263,9 +263,7 @@ export default function TabOrgChart({ members, uniqueDepartments }: TabOrgChartP
         }
       });
 
-      // ----------------------------------------------------
       // 3. 各部署の個別詳細スライド生成
-      // ----------------------------------------------------
       cleanDeptsForExport.forEach(deptName => {
         const slide = pptx.addSlide();
         addCommonHeader(slide);

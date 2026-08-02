@@ -349,7 +349,7 @@ export default function RecordsPage() {
             ) : isAllVerified ? (
               <div className="space-y-3 animate-fadeIn">
                 <div className="bg-emerald-50 text-emerald-700 font-extrabold py-2.5 px-6 rounded-xl text-xs inline-block border border-emerald-100 shadow-sm">
-                  🎉 すべての業務確認が完了しました！提出ボタンが解放されました。
+                  🎉 すべての稼働時間の確認が完了しました。最終出勤日になりましたら、提出をしてください。
                 </div>
                 <div>
                   <button

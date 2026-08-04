@@ -78,6 +78,9 @@ export default function AdminPage() {
   const [viewMode, setViewMode] = useState<"user" | "department">("user");
   const [filterDepartment, setFilterDepartment] = useState<string>("all");
 
+  // 💡 【新設】「稼働記録」タブ専用のチームフィルター用ステート
+  const [filterRecordDepartment, setFilterRecordDepartment] = useState<string>("all");
+
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingRecord, setEditingRecord] = useState<AdminAttendanceRecord | null>(null);
   const [editDate, setEditDate] = useState("");
@@ -149,6 +152,7 @@ export default function AdminPage() {
               const deptStr = meta.department || "";
               setMyDepartment(deptStr);
               setFilterDepartment(deptStr);
+              setFilterRecordDepartment(deptStr);
               setActiveTab(savedTab || "records");
             } else {
               router.push("/");
@@ -388,23 +392,42 @@ export default function AdminPage() {
     return meta.department === myDepartment;
   });
 
+  // 💡 【改修】フィルター判定および最優先ソート（現在稼働中を最上段へ）
   const displayedRecords = filteredAttendanceRecords.filter(r => {
     const matchesMonth = r.workDate.startsWith(selectedMonth);
     if (!matchesMonth) return false;
 
+    // 1. チーム（所属）フィルターの適用
+    if (filterRecordDepartment !== "all") {
+      const meta = getMemberMeta(r.email);
+      if (meta.department !== filterRecordDepartment) return false;
+    }
+
+    // 2. 人（メールアドレス）フィルターの適用
     const matchesEmail = filterEmail === "all" ? true : r.email.trim().toLowerCase() === filterEmail.trim().toLowerCase();
     if (!matchesEmail) return false;
 
+    // 3. 日付範囲フィルターの適用
     if (startDate && r.workDate < startDate) return false;
     if (endDate && r.workDate > endDate) return false;
 
     return true;
   }).sort((a, b) => {
+    // 👑 1. 「現在稼働中（endTime が空文字または "---"）」を無条件で最上段（最優先）にする
+    const isWorkingA = !a.endTime || a.endTime === "" || a.endTime === "---";
+    const isWorkingB = !b.endTime || b.endTime === "" || b.endTime === "---";
+
+    if (isWorkingA && !isWorkingB) return -1; // aを最上段へ
+    if (!isWorkingA && isWorkingB) return 1;  // bを最上段へ
+
+    // 👑 2. 勤務日の降順（新しい日付が上）
     if (b.workDate !== a.workDate) {
       return b.workDate.localeCompare(a.workDate);
     }
-    const timeA = a.endTime === "---" ? "29:99" : a.endTime;
-    const timeB = b.endTime === "---" ? "29:99" : b.endTime;
+
+    // 👑 3. 開始時間の降順（遅い時間が上、あるいは業務開始時間）
+    const timeA = a.startTime || "";
+    const timeB = b.startTime || "";
     return timeB.localeCompare(timeA);
   });
 
@@ -520,8 +543,19 @@ export default function AdminPage() {
                 </>
               )}
 
+              {/* 💡 【新設】稼働記録タブ専用のフィルターヘッダー（チームフィルターを追加） */}
               {activeTab === "records" && (
                 <>
+                  <div className="flex items-center space-x-1.5">
+                    <span className="font-bold text-gray-400 text-xs">チームフィルター:</span>
+                    <select value={filterRecordDepartment} onChange={(e) => setFilterRecordDepartment(e.target.value)} className="bg-gray-50 border border-gray-200 px-2.5 py-1 rounded-lg font-bold text-gray-700 focus:outline-none cursor-pointer text-xs h-8 shadow-sm">
+                      {userRole === "owner" && <option value="all">すべてのチームを表示</option>}
+                      {uniqueDepartmentsForSelect.map(dept => (
+                        <option key={dept} value={dept}>{dept}</option>
+                      ))}
+                    </select>
+                  </div>
+
                   <div className="flex items-center space-x-1.5">
                     <span className="font-bold text-gray-400 text-xs">人フィルター:</span>
                     <select value={filterEmail} onChange={(e) => setFilterEmail(e.target.value)} className="bg-gray-50 border border-gray-200 px-2 py-1 rounded-lg font-bold text-gray-700 focus:outline-none cursor-pointer text-xs h-8 shadow-sm">
@@ -570,7 +604,6 @@ export default function AdminPage() {
           />
         )}
         
-        {/* 💡 【プロップス追加】TabMembers に attendanceRecords を渡して名前照合・ログイン状況判定を可能にする */}
         {activeTab === "members" && (userRole === "owner" || (userRole === "admin" && adminAllowedTabs.includes("members"))) && (
           <TabMembers 
             members={filteredMembers} 

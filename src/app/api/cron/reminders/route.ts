@@ -16,7 +16,6 @@ async function sendMembersMessage(
   toIds: string[]
 ) {
   const postUrl = `https://api.mem-bers.jp/web-api/rooms/${roomId}/messages`;
-  // 改行コードをHTML用の<br>タグに変換
   const formattedBody = body.replace(/\r\n|\r|\n/g, "<br>");
 
   const payload: Record<string, string> = {
@@ -77,7 +76,6 @@ async function getRoomMembers(roomId: string, token: string): Promise<Record<str
 export async function GET(request: Request) {
   try {
     const { searchParams, origin } = new URL(request.url);
-    // 💡 種類を「中間(mid)」と「月末(monthend)」に分割
     const notificationType = searchParams.get("type"); // "unverified" | "mid_submission" | "monthend_submission" | "missing_end" | null
 
     // 1. データベースから通知設定を取得
@@ -96,18 +94,44 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: false, message: "MEMBERS APIトークンが設定されていません。" }, { status: 400 });
     }
 
-    // 2. 登録されているメンバーマスタと打刻記録を取得
-    const membersSnap = await getDocs(collection(db, "members"));
-    const allMembers: Record<string, { name: string; department: string; email: string }> = {};
-    membersSnap.forEach((d) => {
-      const data = d.data();
-      allMembers[data.email] = {
-        name: data.name || "",
-        department: data.department || "",
-        email: data.email,
-      };
-    });
+    // 💡 2. 通常枠（members）と固定保護枠（fixed_members）の両方からメンバー情報を一括取得
+    const [membersSnap, fixedSnap] = await Promise.all([
+      getDocs(collection(db, "members")),
+      getDocs(collection(db, "fixed_members"))
+    ]);
 
+    // 代表アドレス(email)とログイン用アドレス(loginEmail)のどちらからでも氏名・部署を引き出せるマッピング辞書を作成
+    const memberLookupMap: Record<string, { name: string; department: string; managementNumber: string }> = {};
+
+    const registerMemberToMap = (docSnap: any) => {
+      const data = docSnap.data();
+      const cleanEmail = (data.email || docSnap.id || "").trim().toLowerCase();
+      const cleanLoginEmail = (data.loginEmail || "").trim().toLowerCase();
+      
+      const memberName = data.name || `${data.lastName || ""} ${data.firstName || ""}`.trim() || cleanEmail.split("@")[0];
+      const memberDept = (data.department || "").trim();
+      const managementNumber = data.managementNumber || "";
+
+      const memberObj = {
+        name: memberName,
+        department: memberDept,
+        managementNumber: managementNumber
+      };
+
+      // 代表アドレスで登録
+      if (cleanEmail) {
+        memberLookupMap[cleanEmail] = memberObj;
+      }
+      // ログイン用アドレスでも同一オブジェクトを登録（二重ガード）
+      if (cleanLoginEmail) {
+        memberLookupMap[cleanLoginEmail] = memberObj;
+      }
+    };
+
+    membersSnap.forEach(registerMemberToMap);
+    fixedSnap.forEach(registerMemberToMap);
+
+    // 3. 打刻記録を取得
     const recordsSnap = await getDocs(query(collection(db, "attendance_records"), where("deleted", "==", false)));
     const allRecords: any[] = [];
     recordsSnap.forEach((d) => {
@@ -117,9 +141,7 @@ export async function GET(request: Request) {
     const now = new Date();
     const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
-    // URLの置き換え用タグ定義
     const recordsUrl = `${origin}/records`;
-    // 👑 修正: 打刻忘れの場合は専用の「修正パラメーター」を付与してトップ画面へ誘導する
     const stampUrl = `${origin}/?action=fix_missing_end`;
 
     const results: string[] = [];
@@ -130,21 +152,22 @@ export async function GET(request: Request) {
     if (!notificationType || notificationType === "unverified") {
       const config = settings.unverifiedReminder;
       if (config && config.enabled) {
-        // 過去日（今日より前）で、未確認（verified: false）のデータがあるメールアドレスを抽出
         const targetEmails = new Set<string>();
         allRecords.forEach((r) => {
+          const cleanEmail = (r.email || "").trim().toLowerCase();
           if (r.workDate < todayStr && !r.verified && r.endTime !== "") {
-            targetEmails.add(r.email);
+            targetEmails.add(cleanEmail);
           }
         });
 
-        // チームごとに集計して通知送信
         const deptTargetsMap: Record<string, string[]> = {};
         targetEmails.forEach((email) => {
-          const m = allMembers[email];
+          const m = memberLookupMap[email];
           if (m && m.department) {
             if (!deptTargetsMap[m.department]) deptTargetsMap[m.department] = [];
-            deptTargetsMap[m.department].push(m.name);
+            if (!deptTargetsMap[m.department].includes(m.name)) {
+              deptTargetsMap[m.department].push(m.name);
+            }
           }
         });
 
@@ -178,7 +201,6 @@ export async function GET(request: Request) {
     if (!notificationType || notificationType === "mid_submission") {
       const config = settings.midSubmissionReminder;
       if (config && config.enabled) {
-        // 各チームのグループチャット全体へ一括送信
         for (const [dept, roomId] of Object.entries(teamRoomIds)) {
           if (roomId) {
             let msg = config.message || "";
@@ -198,7 +220,6 @@ export async function GET(request: Request) {
     if (!notificationType || notificationType === "monthend_submission") {
       const config = settings.monthEndSubmissionReminder;
       if (config && config.enabled) {
-        // 各チームのグループチャット全体へ一括送信
         for (const [dept, roomId] of Object.entries(teamRoomIds)) {
           if (roomId) {
             let msg = config.message || "";
@@ -218,20 +239,22 @@ export async function GET(request: Request) {
     if (!notificationType || notificationType === "missing_end") {
       const config = settings.missingEndWorkReminder;
       if (config && config.enabled) {
-        // 終了時間（endTime）が空文字のまま放置されているデータがあるメールアドレスを抽出
         const targetEmails = new Set<string>();
         allRecords.forEach((r) => {
+          const cleanEmail = (r.email || "").trim().toLowerCase();
           if (r.endTime === "") {
-            targetEmails.add(r.email);
+            targetEmails.add(cleanEmail);
           }
         });
 
         const deptTargetsMap: Record<string, string[]> = {};
         targetEmails.forEach((email) => {
-          const m = allMembers[email];
+          const m = memberLookupMap[email];
           if (m && m.department) {
             if (!deptTargetsMap[m.department]) deptTargetsMap[m.department] = [];
-            deptTargetsMap[m.department].push(m.name);
+            if (!deptTargetsMap[m.department].includes(m.name)) {
+              deptTargetsMap[m.department].push(m.name);
+            }
           }
         });
 

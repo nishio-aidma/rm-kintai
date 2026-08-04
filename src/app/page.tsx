@@ -110,19 +110,18 @@ function DashboardContent() {
   const [endHourInput, setEndHourInput] = useState<string>("18");
   const [endMinuteInput, setEndMinuteInput] = useState<string>("00");
 
-  // 💡 【新設】業務終了後の「当日の記録確認お願いメッセージ」表示用モーダルステート
   const [showEndNoticeModal, setShowEndNoticeModal] = useState<boolean>(false);
-
   const [customFooterMessage, setCustomFooterMessage] = useState<string>("");
 
-  // 未終了記録の警告モーダル表示用ステート
   const [showUnfinishedWarning, setShowUnfinishedWarning] = useState<boolean>(false);
 
-  // 打刻忘れ修正専用モーダル用の状態管理
   const [showFixMissingModal, setShowFixMissingModal] = useState<boolean>(false);
   const [missingEndRecords, setMissingEndRecords] = useState<MissingEndRecord[]>([]);
   const [fixEndHourInput, setFixEndHourInput] = useState<string>("18");
   const [fixEndMinuteInput, setFixEndMinuteInput] = useState<string>("00");
+
+  // 💡 【新設】未確認データ件数を保持するステート
+  const [unverifiedCount, setUnverifiedCount] = useState<number>(0);
 
   const hoursOptions = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
   const minutesOptions = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'));
@@ -207,6 +206,24 @@ function DashboardContent() {
 
           missingList.sort((a, b) => b.workDate.localeCompare(a.workDate));
           setMissingEndRecords(missingList);
+
+          // 💡 【新設】過去の未確認データを取得してカウントする処理
+          const unverifiedQuery = query(
+            collection(db, "attendance_records"),
+            where("email", "==", email),
+            where("verified", "==", false),
+            where("deleted", "==", false)
+          );
+          const unverifiedSnap = await getDocs(unverifiedQuery);
+          let count = 0;
+          unverifiedSnap.forEach((docSnap) => {
+            const data = docSnap.data();
+            // 昨日以前のデータで、終了時間が入力済みのものだけを対象とする
+            if (data.workDate < todayStr && data.endTime !== "") {
+              count++;
+            }
+          });
+          setUnverifiedCount(count);
 
           if (searchParams?.get("action") === "fix_missing_end" || (searchParams?.get("action") !== "end" && missingList.length > 0)) {
             setShowFixMissingModal(true);
@@ -372,7 +389,6 @@ function DashboardContent() {
     setShowEndConfirmModal(true);
   };
 
-  // 💡 業務終了打刻が成功した直後に記録確認ご案内モーダル（showEndNoticeModal）を表示する
   const handleConfirmEndWork = async () => {
     if (!currentStampId) return;
     try {
@@ -395,7 +411,6 @@ function DashboardContent() {
       setCurrentStartTimeStr("");
       setStatusMessage(null);
 
-      // 👑 退勤完了の確認案内モーダルを開く
       setShowEndNoticeModal(true);
 
       if (searchParams?.get("action") === "end") {
@@ -409,7 +424,6 @@ function DashboardContent() {
     }
   };
 
-  // 打刻忘れ専用モーダルでの特定レコード修正送信処理
   const handleFixSingleMissingRecord = async (targetRecord: MissingEndRecord) => {
     try {
       const selectedEndTimeStr = `${fixEndHourInput}:${fixEndMinuteInput}`;
@@ -486,8 +500,28 @@ function DashboardContent() {
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-4 py-10 space-y-8">
+      <main className="max-w-4xl mx-auto px-4 py-10 space-y-6">
         
+        {/* 💡 【新設】未確認記録がある場合のみ表示される控えめなお知らせバナー */}
+        {unverifiedCount > 0 && !showUnfinishedWarning && !showFixMissingModal && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-700 px-4 py-3 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between shadow-sm animate-fadeIn space-y-2 sm:space-y-0">
+            <div className="flex items-center space-x-2">
+              <svg className="w-5 h-5 text-amber-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+              </svg>
+              <span className="text-[11px] sm:text-xs font-bold leading-tight">
+                過去の記録で未確認のデータが <span className="text-amber-600 font-black text-sm">{unverifiedCount}</span> 件あります。確認をお願いいたします。
+              </span>
+            </div>
+            <button 
+              onClick={() => router.push("/records")} 
+              className="text-[10px] sm:text-xs font-bold bg-white text-amber-600 px-3 py-1.5 rounded-lg border border-amber-200 hover:bg-amber-100 transition-colors w-full sm:w-auto"
+            >
+              記録を確認する ➔
+            </button>
+          </div>
+        )}
+
         <div className="bg-white rounded-[32px] p-8 sm:p-10 shadow-sm border border-gray-100 text-center space-y-8">
           
           <div className="space-y-2">
@@ -763,7 +797,7 @@ function DashboardContent() {
         </div>
       )}
 
-      {/* 👑 5. 【新設】業務終了完了時のお願い案内モーダル */}
+      {/* 👑 5. 業務終了完了時のお願い案内モーダル */}
       {showEndNoticeModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[999] animate-fadeIn p-4">
           <div className="bg-white rounded-[32px] p-8 max-w-sm w-full shadow-2xl border border-emerald-100 text-center space-y-6 animate-scaleUp">

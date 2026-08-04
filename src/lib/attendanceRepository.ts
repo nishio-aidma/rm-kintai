@@ -228,16 +228,18 @@ export const attendanceRepository = {
       let workMinutes = 0;
       let workHours = 0;
       
-      const startTotalMinutes = parseTimeToMinutes(updatedFields.startTime);
-      let endTotalMinutes = parseTimeToMinutes(updatedFields.endTime);
-      
-      if (endTotalMinutes <= startTotalMinutes) {
-        endTotalMinutes += 24 * 60;
+      if (updatedFields.endTime && updatedFields.endTime !== "---" && updatedFields.endTime.trim() !== "") {
+        const startTotalMinutes = parseTimeToMinutes(updatedFields.startTime);
+        let endTotalMinutes = parseTimeToMinutes(updatedFields.endTime);
+        
+        if (endTotalMinutes <= startTotalMinutes) {
+          endTotalMinutes += 24 * 60;
+        }
+        
+        const totalDiff = endTotalMinutes - startTotalMinutes;
+        workMinutes = Math.max(0, totalDiff);
+        workHours = Math.round((workMinutes / 60) * 100) / 100;
       }
-      
-      const totalDiff = endTotalMinutes - startTotalMinutes;
-      workMinutes = Math.max(0, totalDiff);
-      workHours = Math.round((workMinutes / 60) * 100) / 100;
 
       await updateDoc(recordRef, { 
         workDate: updatedFields.workDate,
@@ -263,16 +265,18 @@ export const attendanceRepository = {
       let workMinutes = 0;
       let workHours = 0;
 
-      const startTotalMinutes = parseTimeToMinutes(fields.startTime);
-      let endTotalMinutes = parseTimeToMinutes(fields.endTime);
+      if (fields.endTime && fields.endTime !== "---" && fields.endTime.trim() !== "") {
+        const startTotalMinutes = parseTimeToMinutes(fields.startTime);
+        let endTotalMinutes = parseTimeToMinutes(fields.endTime);
 
-      if (endTotalMinutes <= startTotalMinutes) {
-        endTotalMinutes += 24 * 60;
+        if (endTotalMinutes <= startTotalMinutes) {
+          endTotalMinutes += 24 * 60;
+        }
+
+        const totalDiff = endTotalMinutes - startTotalMinutes;
+        workMinutes = Math.max(0, totalDiff);
+        workHours = Math.round((workMinutes / 60) * 100) / 100;
       }
-
-      const totalDiff = endTotalMinutes - startTotalMinutes;
-      workMinutes = Math.max(0, totalDiff);
-      workHours = Math.round((workMinutes / 60) * 100) / 100;
 
       const newRecord = {
         userId: "admin_created",
@@ -599,7 +603,6 @@ export const attendanceRepository = {
     }
   },
 
-  // 💡 【根本解決の修正】偽の自作子チーム生成ロジックを完全廃止。本当にFirestoreに保存されたデータのみ取得する
   getSubTeams: async (parentDept: string) => {
     try {
       const docRef = doc(db, "org_sub_teams", parentDept);
@@ -610,7 +613,6 @@ export const attendanceRepository = {
         return data.subTeams || [];
       }
 
-      // まだ子チームが1つも作られていない場合は素直に空の配列（0件）を返す
       return [];
     } catch (error) {
       console.error(`【レポジトリ確認】${parentDept} 取得エラー:`, error);
@@ -618,6 +620,7 @@ export const attendanceRepository = {
     }
   },
 
+  // 💡 【16件のエラー解消修正】型定義を (as any) で明示し、変数名 fixedRef も統一
   getMemberByEmail: async (loginEmail: string): Promise<MemberInfo | null> => {
     try {
       const cleanEmail = loginEmail.trim().toLowerCase();
@@ -625,7 +628,7 @@ export const attendanceRepository = {
       const q = query(collection(db, "members"), or(where("loginEmail", "==", cleanEmail), where("email", "==", cleanEmail)));
       const snap = await getDocs(q);
       if (!snap.empty) {
-        const docData = snap.docs[0].data();
+        const docData = snap.docs[0].data() as any;
         return {
           id: docData.id || "",
           managementNumber: docData.managementNumber || "---",
@@ -646,10 +649,10 @@ export const attendanceRepository = {
         };
       }
 
-      const fixedDocRef = doc(db, "fixed_members", cleanEmail);
-      const fixedSnap = await getDoc(fixedDocRef);
+      const fixedRef = doc(db, "fixed_members", cleanEmail);
+      const fixedSnap = await getDoc(fixedRef);
       if (fixedSnap.exists()) {
-        const docData = fixedSnap.data();
+        const docData = fixedSnap.data() as any;
         return {
           id: docData.id || "",
           managementNumber: docData.managementNumber || "固定枠",
@@ -773,7 +776,7 @@ export const attendanceRepository = {
         manualReminder: {
           enabled: true,
           time: "",
-          message: "【ダコック個別催促】稼働記録が【未提出】状態です。内容を確認の上, システムより提出ボタンの押下をお願いいたします。\n[自分の記録URL]",
+          message: "【ダコック個別催促】稼働記録が【未提出】状態です。内容を確認の上、システムより提出ボタンの押下をお願いいたします。\n[自分の記録URL]",
         },
         teamRoomIds: {},
         apiToken: "",

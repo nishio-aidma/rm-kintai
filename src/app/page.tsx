@@ -110,12 +110,15 @@ function DashboardContent() {
   const [endHourInput, setEndHourInput] = useState<string>("18");
   const [endMinuteInput, setEndMinuteInput] = useState<string>("00");
 
+  // 💡 【新設】業務終了後の「当日の記録確認お願いメッセージ」表示用モーダルステート
+  const [showEndNoticeModal, setShowEndNoticeModal] = useState<boolean>(false);
+
   const [customFooterMessage, setCustomFooterMessage] = useState<string>("");
 
-  // 💡 未終了記録の警告モーダル表示用ステート
+  // 未終了記録の警告モーダル表示用ステート
   const [showUnfinishedWarning, setShowUnfinishedWarning] = useState<boolean>(false);
 
-  // 👑 打刻忘れ修正専用モーダル用の状態管理
+  // 打刻忘れ修正専用モーダル用の状態管理
   const [showFixMissingModal, setShowFixMissingModal] = useState<boolean>(false);
   const [missingEndRecords, setMissingEndRecords] = useState<MissingEndRecord[]>([]);
   const [fixEndHourInput, setFixEndHourInput] = useState<string>("18");
@@ -178,7 +181,7 @@ function DashboardContent() {
             setWorkState("not_started");
           }
 
-          // 💡 終了時刻が未登録の打刻データを取得
+          // 終了時刻が未登録の打刻データを取得
           const q = query(
             collection(db, "attendance_records"),
             where("email", "==", email),
@@ -192,7 +195,6 @@ function DashboardContent() {
 
           querySnapshot.forEach((docSnap) => {
             const data = docSnap.data();
-            // 今日以外の未終了データがあれば抽出
             if (data.workDate !== todayStr) {
               hasOldUnfinished = true;
               missingList.push({
@@ -203,11 +205,9 @@ function DashboardContent() {
             }
           });
 
-          // 日付の降順でソート
           missingList.sort((a, b) => b.workDate.localeCompare(a.workDate));
           setMissingEndRecords(missingList);
 
-          // 👑 URLに action=fix_missing_end があるか、または打刻忘れデータがあれば特別モーダルを自動表示
           if (searchParams?.get("action") === "fix_missing_end" || (searchParams?.get("action") !== "end" && missingList.length > 0)) {
             setShowFixMissingModal(true);
           } else if (hasOldUnfinished) {
@@ -231,7 +231,6 @@ function DashboardContent() {
           session.cachedMessage = finalMessage;
           localStorage.setItem("session", JSON.stringify(session));
 
-          // 💡 URLパラメータの確認 (action=end なら終了モーダルを自動で開く)
           if (searchParams?.get("action") === "end") {
             handleOpenEndModal();
           }
@@ -373,6 +372,7 @@ function DashboardContent() {
     setShowEndConfirmModal(true);
   };
 
+  // 💡 業務終了打刻が成功した直後に記録確認ご案内モーダル（showEndNoticeModal）を表示する
   const handleConfirmEndWork = async () => {
     if (!currentStampId) return;
     try {
@@ -393,13 +393,15 @@ function DashboardContent() {
       setWorkState("not_started");
       setCurrentStampId(null);
       setCurrentStartTimeStr("");
-      setStatusMessage(`お疲れ様でした！本日の業務終了を記録しました。`);
-      
+      setStatusMessage(null);
+
+      // 👑 退勤完了の確認案内モーダルを開く
+      setShowEndNoticeModal(true);
+
       if (searchParams?.get("action") === "end") {
         router.replace("/");
       }
 
-      setTimeout(() => setStatusMessage(null), 4000);
     } catch (error: any) {
       const errorMsg = error?.message || "エラー：業務終了データの保存に失敗しました。";
       setStatusMessage(errorMsg);
@@ -407,7 +409,7 @@ function DashboardContent() {
     }
   };
 
-  // 👑 打刻忘れ専用モーダルでの特定レコード修正送信処理
+  // 打刻忘れ専用モーダルでの特定レコード修正送信処理
   const handleFixSingleMissingRecord = async (targetRecord: MissingEndRecord) => {
     try {
       const selectedEndTimeStr = `${fixEndHourInput}:${fixEndMinuteInput}`;
@@ -420,14 +422,12 @@ function DashboardContent() {
         selectedEndTimeStr
       );
 
-      // 成功したらリストから取り除く
       const remaining = missingEndRecords.filter(r => r.id !== targetRecord.id);
       setMissingEndRecords(remaining);
 
       setStatusMessage(`✅ ${targetRecord.workDate} の業務終了時間を ${selectedEndTimeStr} で保存しました！`);
       setTimeout(() => setStatusMessage(null), 4000);
 
-      // 全て完了したらモーダルを閉じる
       if (remaining.length === 0) {
         setShowFixMissingModal(false);
         if (searchParams?.get("action") === "fix_missing_end") {
@@ -763,7 +763,54 @@ function DashboardContent() {
         </div>
       )}
 
-      {/* 🚨 5. 未終了レコード警告モーダル */}
+      {/* 👑 5. 【新設】業務終了完了時のお願い案内モーダル */}
+      {showEndNoticeModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[999] animate-fadeIn p-4">
+          <div className="bg-white rounded-[32px] p-8 max-w-sm w-full shadow-2xl border border-emerald-100 text-center space-y-6 animate-scaleUp">
+            
+            <div className="w-16 h-16 mx-auto rounded-full bg-emerald-50 text-[#34C759] flex items-center justify-center shadow-inner">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-8 h-8">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+
+            <div className="space-y-3">
+              <h4 className="text-lg font-black text-gray-900 tracking-tight">お疲れ様でした！</h4>
+              
+              <div className="bg-emerald-50/60 p-4 rounded-2xl border border-emerald-100 text-left space-y-1">
+                <p className="text-xs font-bold text-gray-700 leading-relaxed">
+                  本日の業務は終わりましたか？
+                </p>
+                <p className="text-xs font-bold text-emerald-800 leading-relaxed">
+                  当日業務が終了しましたら、<span className="bg-emerald-200/80 px-1 py-0.5 rounded text-emerald-950">”自分の記録”</span>から当日の業務記録を確認し、稼働時間の確認をしてくださいね。
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-col space-y-2 pt-1">
+              <button
+                onClick={() => {
+                  setShowEndNoticeModal(false);
+                  router.push("/records");
+                }}
+                className="w-full bg-[#34C759] hover:bg-[#2FB350] text-white font-bold py-3.5 rounded-xl text-xs transition-all shadow-md shadow-emerald-200 active:scale-95 cursor-pointer"
+              >
+                自分の記録を確認する ➔
+              </button>
+
+              <button
+                onClick={() => setShowEndNoticeModal(false)}
+                className="w-full bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold py-3 rounded-xl text-xs transition-all cursor-pointer"
+              >
+                はい（閉じる）
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* 🚨 6. 未終了レコード警告モーダル */}
       {showUnfinishedWarning && !showFixMissingModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[999] animate-fadeIn">
           <div className="bg-white rounded-3xl p-6 max-w-sm w-full mx-4 shadow-2xl border border-gray-100 text-center space-y-5 animate-scaleUp">
@@ -798,7 +845,7 @@ function DashboardContent() {
         </div>
       )}
 
-      {/* 👑 6. 【新設】打刻忘れ（終了時間未入力）専用の修正モーダル */}
+      {/* 👑 7. 打刻忘れ（終了時間未入力）専用の修正モーダル */}
       {showFixMissingModal && missingEndRecords.length > 0 && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-[1000] animate-fadeIn p-4">
           <div className="bg-white rounded-[32px] p-6 sm:p-8 max-w-md w-full shadow-2xl border border-red-100 text-center space-y-6 max-h-[90vh] overflow-y-auto animate-scaleUp">

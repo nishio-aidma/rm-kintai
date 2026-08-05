@@ -22,6 +22,7 @@ async function sendMembersMessage(
     body: formattedBody,
   };
 
+  // 💡 複数人の内部IDをカンマ区切りで渡すと、MEMBERS側で自動的に画像2のようなピンク枠メンションを付与してくれる
   if (toIds.length > 0) {
     payload.to_id = toIds.join(",");
   }
@@ -94,13 +95,12 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: false, message: "MEMBERS APIトークンが設定されていません。" }, { status: 400 });
     }
 
-    // 💡 2. 通常枠（members）と固定保護枠（fixed_members）の両方からメンバー情報を一括取得
+    // 2. 通常枠（members）と固定保護枠（fixed_members）の両方からメンバー情報を一括取得
     const [membersSnap, fixedSnap] = await Promise.all([
       getDocs(collection(db, "members")),
       getDocs(collection(db, "fixed_members"))
     ]);
 
-    // 代表アドレス(email)とログイン用アドレス(loginEmail)のどちらからでも氏名・部署を引き出せるマッピング辞書を作成
     const memberLookupMap: Record<string, { name: string; department: string; managementNumber: string }> = {};
 
     const registerMemberToMap = (docSnap: any) => {
@@ -118,11 +118,9 @@ export async function GET(request: Request) {
         managementNumber: managementNumber
       };
 
-      // 代表アドレスで登録
       if (cleanEmail) {
         memberLookupMap[cleanEmail] = memberObj;
       }
-      // ログイン用アドレスでも同一オブジェクトを登録（二重ガード）
       if (cleanLoginEmail) {
         memberLookupMap[cleanLoginEmail] = memberObj;
       }
@@ -177,10 +175,12 @@ export async function GET(request: Request) {
             const roomMembers = await getRoomMembers(roomId, token);
             const toIds: string[] = [];
 
+            // 💡 【修正点】手動送信と同じ「あいまい検索（includes）」でマッチングさせる
             memberNames.forEach((name) => {
-              const cleanName = name.replace(/[\s\u3000]/g, "");
-              if (roomMembers[cleanName]) {
-                toIds.push(roomMembers[cleanName]);
+              const cleanAppName = name.replace(/[\s\u3000]/g, "");
+              const matchedKey = Object.keys(roomMembers).find(memName => memName.includes(cleanAppName));
+              if (matchedKey) {
+                toIds.push(roomMembers[matchedKey]);
               }
             });
 
@@ -264,10 +264,12 @@ export async function GET(request: Request) {
             const roomMembers = await getRoomMembers(roomId, token);
             const toIds: string[] = [];
 
+            // 💡 【修正点】手動送信と同じ「あいまい検索（includes）」でマッチングさせる
             memberNames.forEach((name) => {
-              const cleanName = name.replace(/[\s\u3000]/g, "");
-              if (roomMembers[cleanName]) {
-                toIds.push(roomMembers[cleanName]);
+              const cleanAppName = name.replace(/[\s\u3000]/g, "");
+              const matchedKey = Object.keys(roomMembers).find(memName => memName.includes(cleanAppName));
+              if (matchedKey) {
+                toIds.push(roomMembers[matchedKey]);
               }
             });
 

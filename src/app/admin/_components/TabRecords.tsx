@@ -1,9 +1,78 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { MemberInfo } from "@/lib/attendanceRepository";
 import { doc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+
+// 🍏 ドラムロール選択UIコンポーネント
+function ScrollWheelPicker({
+  options,
+  value,
+  onChange,
+}: {
+  options: string[];
+  value: string;
+  onChange: (val: string) => void;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const isAutoScrolling = useRef(false);
+
+  useEffect(() => {
+    if (containerRef.current) {
+      const index = options.indexOf(value);
+      if (index !== -1) {
+        isAutoScrolling.current = true;
+        containerRef.current.scrollTo({ top: index * 40, behavior: 'auto' });
+        
+        setTimeout(() => {
+          isAutoScrolling.current = false;
+        }, 50);
+      }
+    }
+  }, [value, options]);
+
+  const handleScroll = () => {
+    if (isAutoScrolling.current) return;
+
+    if (containerRef.current) {
+      const currentScroll = containerRef.current.scrollTop;
+      const index = Math.round(currentScroll / 40);
+      if (options[index] && options[index] !== value) {
+        onChange(options[index]);
+      }
+    }
+  };
+
+  const handleItemClick = (opt: string) => {
+    onChange(opt);
+  };
+
+  return (
+    <div className="relative h-[120px] w-16 overflow-hidden select-none bg-gray-50/50 rounded-xl border border-gray-100">
+      <div className="absolute top-[40px] left-1 right-1 h-[40px] bg-[#34C759]/15 border-2 border-[#34C759] rounded-lg pointer-events-none z-0" />
+      <div
+        ref={containerRef}
+        onScroll={handleScroll}
+        className="relative z-10 h-full overflow-y-auto snap-y snap-mandatory cursor-pointer [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none'] py-[40px]"
+      >
+        {options.map((opt) => (
+          <div
+            key={opt}
+            onClick={() => handleItemClick(opt)}
+            className={`h-[40px] flex items-center justify-center snap-center transition-all tabular-nums font-mono ${
+              opt === value
+                ? "text-xl text-gray-900 font-black tracking-tight"
+                : "text-xs text-gray-400 font-medium hover:text-gray-700"
+            }`}
+          >
+            {opt}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 // 💡 実際の打刻時間を一覧で受け取れるように型を拡張
 interface AdminAttendanceRecord {
@@ -12,10 +81,10 @@ interface AdminAttendanceRecord {
   email: string;
   workDate: string;
   startTime: string;
-  actualStartTime?: string; // 👑 新設: 実際の開始打刻操作時刻
+  actualStartTime?: string;
   endTime: string;
-  actualEndTime?: string; // 👑 新設: 実際の終了打刻操作時刻
-  breakMinutes: number; // ※型エラーを防ぐため残しますが、使用はしません
+  actualEndTime?: string;
+  breakMinutes: number;
   workHours: number;
   submitted: boolean;
   verified?: boolean;
@@ -48,9 +117,15 @@ export default function TabRecords({
     const now = new Date();
     return now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, '0') + "-" + String(now.getDate()).padStart(2, '0');
   });
-  const [createStart, setCreateStart] = useState("09:00");
-  const [createEnd, setCreateEnd] = useState("18:00");
-  // 💡 createBreakステートを完全に削除しました
+
+  // 💡 文字入力からドラムロール選択用の分割ステートに変更
+  const [createStartHour, setCreateStartHour] = useState("09");
+  const [createStartMinute, setCreateStartMinute] = useState("00");
+  const [createEndHour, setCreateEndHour] = useState("18");
+  const [createEndMinute, setCreateEndMinute] = useState("00");
+
+  const hoursOptions = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
+  const minutesOptions = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'));
 
   const [deleteModal, setDeleteModal] = useState<{ isOpen: boolean; recordId: string; name: string; date: string }>({
     isOpen: false,
@@ -84,28 +159,25 @@ export default function TabRecords({
       alert("稼働を記録するメンバーをプルダウンから選択してください。");
       return;
     }
-    if (!createDate || !createStart || !createEnd) {
-      alert("勤務日、開始時間、終了時間は必須項目です。");
+    if (!createDate) {
+      alert("勤務日は必須項目です。");
       return;
     }
 
+    const createStart = `${createStartHour}:${createStartMinute}`;
+    const createEnd = `${createEndHour}:${createEndMinute}`;
+
     try {
-      const [startH, startM] = createStart.split(":").map(Number);
-      const [endH, endM] = createEnd.split(":").map(Number);
+      const [startH, startM] = [parseInt(createStartHour, 10), parseInt(createStartMinute, 10)];
+      const [endH, endM] = [parseInt(createEndHour, 10), parseInt(createEndMinute, 10)];
       
-      if (!isNaN(startH) && !isNaN(startM) && !isNaN(endH) && !isNaN(endM)) {
-        const totalDiff = (endH * 60 + endM) - (startH * 60 + startM);
-        if (totalDiff <= 0) {
-          alert("⚠️ エラー：終了時間は開始時間よりも後の時刻を指定してください。");
-          return;
-        }
-        // 💡 休憩時間が稼働時間を超えるかどうかのチェックを削除
-      } else {
-        alert("⚠️ エラー：時間の入力形式が正しくありません。(例: 09:00)");
+      const totalDiff = (endH * 60 + endM) - (startH * 60 + startM);
+      if (totalDiff <= 0) {
+        alert("⚠️ エラー：終了時間は開始時間よりも後の時刻を指定してください。");
         return;
       }
     } catch (e) {
-      alert("⚠️ エラー：時間の計算に失敗しました。入力形式をご確認ください。");
+      alert("⚠️ エラー：時間の計算に失敗しました。");
       return;
     }
 
@@ -119,15 +191,17 @@ export default function TabRecords({
         workDate: createDate,
         startTime: createStart,
         endTime: createEnd,
-        breakMinutes: 0 // 💡 休憩時間の引数には強制的に 0 を渡す
+        breakMinutes: 0
       });
 
       setShowCreateModal(false);
       const now = new Date();
       setCreateDate(now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, '0') + "-" + String(now.getDate()).padStart(2, '0'));
       setCreateEmail("");
-      setCreateStart("09:00");
-      setCreateEnd("18:00");
+      setCreateStartHour("09");
+      setCreateStartMinute("00");
+      setCreateEndHour("18");
+      setCreateEndMinute("00");
 
       setStatusMessage("稼働記録を新規作成・自動計算しました！");
       setTimeout(() => setStatusMessage(null), 3000);
@@ -173,7 +247,6 @@ export default function TabRecords({
                 <th className="py-2">勤務日</th>
                 <th className="py-2">業務開始</th>
                 <th className="py-2">業務終了</th>
-                {/* 💡 テーブルヘッダーから「休憩」列を削除 */}
                 <th className="py-2">実働時間</th>
                 <th className="py-2 text-center w-28">本人確認状況</th>
                 <th className="py-2 text-center w-36">リーダー確認</th>
@@ -187,7 +260,6 @@ export default function TabRecords({
                 const isLeaderVerified = !!record.leaderVerified;
 
                 return (
-                  /* 💡 【視認性の向上】リーダー確認済みの行は薄い緑背景 (bg-[#34C759]/10) でハイライト */
                   <tr 
                     key={record.id} 
                     className={`transition-colors ${
@@ -214,7 +286,6 @@ export default function TabRecords({
                     </td>
                     <td className="py-2 font-medium">{record.workDate}</td>
                     
-                    {/* 💡 【実時間表示】業務開始列（データが存在すれば常に「実打刻: HH:MM」を表示） */}
                     <td className="py-2">
                       <div className="flex flex-col">
                         <span className="tabular-nums font-medium text-emerald-600">{record.startTime}</span>
@@ -226,7 +297,6 @@ export default function TabRecords({
                       </div>
                     </td>
 
-                    {/* 💡 【実時間表示】業務終了列（データが存在すれば常に「実打刻: HH:MM」を表示） */}
                     <td className="py-2">
                       <div className="flex flex-col">
                         {record.endTime === "" ? (
@@ -244,7 +314,6 @@ export default function TabRecords({
                       </div>
                     </td>
 
-                    {/* 💡 テーブルボディから「休憩」列を削除 */}
                     <td className="py-2 tabular-nums font-bold text-gray-700">{record.workHours} 時間</td>
                     
                     <td className="py-2 text-center">
@@ -259,7 +328,6 @@ export default function TabRecords({
                       )}
                     </td>
 
-                    {/* 💡 【制限の追加】本人確認（isVerified）が未完了の場合はボタンをロック（disabled） */}
                     <td className="py-2 text-center">
                       {isLeaderVerified ? (
                         <button
@@ -308,21 +376,22 @@ export default function TabRecords({
         )}
       </div>
 
+      {/* 💡 【改良】ドラムロール式時間選択UIを取り入れた手動追加モーダル */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 text-xs font-sans">
-          <div className="bg-white rounded-2xl p-6 max-w-sm w-full mx-4 shadow-xl border border-gray-100 text-left space-y-4 animate-fadeIn">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 text-xs font-sans p-4">
+          <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl border border-gray-100 text-left space-y-4 animate-fadeIn max-h-[90vh] overflow-y-auto">
             <div>
               <h4 className="text-sm font-bold text-gray-800">稼働記録の代理手動追加</h4>
               <p className="text-[10px] text-gray-400 mt-0.5">指定したメンバーの稼働データを裏側から強制作成します</p>
             </div>
 
-            <div className="space-y-3 font-semibold text-gray-500">
+            <div className="space-y-4 font-semibold text-gray-500">
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-gray-400">対象メンバーの選択</label>
                 <select 
                   value={createEmail} 
                   onChange={(e) => setCreateEmail(e.target.value)} 
-                  className="w-full border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-700 font-bold text-xs focus:outline-none cursor-pointer"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 bg-white text-gray-700 font-bold text-xs focus:outline-none cursor-pointer"
                 >
                   <option value="">-- メンバーを選択してください --</option>
                   {members.map(m => (
@@ -333,26 +402,74 @@ export default function TabRecords({
 
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-gray-400">勤務日</label>
-                <input type="date" value={createDate} onChange={(e) => setCreateDate(e.target.value)} className="w-full border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-700 font-medium text-xs focus:outline-none cursor-pointer" />
+                <input type="date" value={createDate} onChange={(e) => setCreateDate(e.target.value)} className="w-full border border-gray-200 rounded-xl px-3 py-2 bg-white text-gray-700 font-medium text-xs focus:outline-none cursor-pointer" />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-gray-400">業務開始 (HH:MM)</label>
-                  <input type="text" value={createStart} onChange={(e) => setCreateStart(e.target.value)} placeholder="09:00" className="w-full border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-700 font-medium text-xs focus:outline-none text-center" />
+              {/* 🍏 ドラムロール選択UI（業務開始 & 業務終了） */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-gray-50/60 p-3 rounded-2xl border border-gray-100">
+                
+                {/* 業務開始 */}
+                <div className="space-y-1 text-center">
+                  <label className="text-[10px] font-bold text-emerald-600 block">業務開始時間</label>
+                  <div className="flex items-center justify-center space-x-1 bg-white p-1.5 rounded-xl border border-gray-200 shadow-sm">
+                    <ScrollWheelPicker options={hoursOptions} value={createStartHour} onChange={setCreateStartHour} />
+                    <span className="font-mono font-bold text-xs text-gray-400">時</span>
+                    <span className="text-base font-black text-gray-800 font-mono">:</span>
+                    <ScrollWheelPicker options={minutesOptions} value={createStartMinute} onChange={setCreateStartMinute} />
+                    <span className="font-mono font-bold text-xs text-gray-400">分</span>
+                  </div>
+                  <div className="flex justify-center space-x-1 pt-1">
+                    {["00", "15", "30", "45"].map((min) => (
+                      <button
+                        key={min}
+                        type="button"
+                        onClick={() => setCreateStartMinute(min)}
+                        className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition-all cursor-pointer font-mono ${
+                          createStartMinute === min
+                            ? "bg-emerald-500 text-white shadow-sm"
+                            : "bg-gray-200 text-gray-600 hover:bg-gray-300"
+                        }`}
+                      >
+                        {min}分
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-gray-400">業務終了 (HH:MM)</label>
-                  <input type="text" value={createEnd} onChange={(e) => setCreateEnd(e.target.value)} placeholder="18:00" className="w-full border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-700 font-medium text-xs focus:outline-none text-center" />
+
+                {/* 業務終了 */}
+                <div className="space-y-1 text-center">
+                  <label className="text-[10px] font-bold text-gray-700 block">業務終了時間</label>
+                  <div className="flex items-center justify-center space-x-1 bg-white p-1.5 rounded-xl border border-gray-200 shadow-sm">
+                    <ScrollWheelPicker options={hoursOptions} value={createEndHour} onChange={setCreateEndHour} />
+                    <span className="font-mono font-bold text-xs text-gray-400">時</span>
+                    <span className="text-base font-black text-gray-800 font-mono">:</span>
+                    <ScrollWheelPicker options={minutesOptions} value={createEndMinute} onChange={setCreateEndMinute} />
+                    <span className="font-mono font-bold text-xs text-gray-400">分</span>
+                  </div>
+                  <div className="flex justify-center space-x-1 pt-1">
+                    {["00", "15", "30", "45"].map((min) => (
+                      <button
+                        key={min}
+                        type="button"
+                        onClick={() => setCreateEndMinute(min)}
+                        className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition-all cursor-pointer font-mono ${
+                          createEndMinute === min
+                            ? "bg-gray-800 text-white shadow-sm"
+                            : "bg-gray-200 text-gray-600 hover:bg-gray-300"
+                        }`}
+                      >
+                        {min}分
+                      </button>
+                    ))}
+                  </div>
                 </div>
+
               </div>
-              
-              {/* 💡 休憩時間を選択する<select>のブロックを完全に削除 */}
             </div>
 
             <div className="flex space-x-2 pt-2">
-              <button onClick={() => setShowCreateModal(false)} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold py-2 rounded-lg transition-all cursor-pointer">キャンセル</button>
-              <button onClick={handleSaveCreate} className="flex-1 bg-emerald-400 hover:bg-emerald-50 text-white font-bold py-2 rounded-lg transition-all shadow-sm cursor-pointer">データを手動作成</button>
+              <button onClick={() => setShowCreateModal(false)} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold py-2.5 rounded-xl transition-all cursor-pointer">キャンセル</button>
+              <button onClick={handleSaveCreate} className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-2.5 rounded-xl transition-all shadow-sm cursor-pointer">データを手動作成</button>
             </div>
           </div>
         </div>

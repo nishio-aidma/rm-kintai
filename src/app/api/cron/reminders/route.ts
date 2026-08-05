@@ -22,7 +22,7 @@ async function sendMembersMessage(
     body: formattedBody,
   };
 
-  // 💡 複数人の内部IDをカンマ区切りで渡すと、MEMBERS側で自動的に画像2のようなピンク枠メンションを付与してくれる
+  // 💡 to_id に対象者の内部IDを渡すことで、MEMBERS側で自動的に青文字メンションが付与されます
   if (toIds.length > 0) {
     payload.to_id = toIds.join(",");
   }
@@ -44,7 +44,7 @@ async function sendMembersMessage(
   return true;
 }
 
-// 💡 MEMBERSのルームからメンバー一覧を取得する関数
+// 💡 MEMBERSのルームからメンバー一覧を取得する関数（名前のスペースを徹底除去）
 async function getRoomMembers(roomId: string, token: string): Promise<Record<string, string>> {
   const getUrl = `https://api.mem-bers.jp/web-api/rooms/${roomId}/members`;
   const memberMap: Record<string, string> = {}; // { "スペースなし名前": "MEMBERS内部ID" }
@@ -61,6 +61,7 @@ async function getRoomMembers(roomId: string, token: string): Promise<Record<str
       const json = await res.json();
       const members: MembersApiUser[] = json.member || [];
       members.forEach((m) => {
+        // 名前の半角スペース・全角スペースを完全に削除
         const cleanName = (m.name || "").replace(/[\s\u3000]/g, "");
         if (cleanName) {
           memberMap[cleanName] = String(m.id);
@@ -108,12 +109,12 @@ export async function GET(request: Request) {
       const cleanEmail = (data.email || docSnap.id || "").trim().toLowerCase();
       const cleanLoginEmail = (data.loginEmail || "").trim().toLowerCase();
       
-      const memberName = data.name || `${data.lastName || ""} ${data.firstName || ""}`.trim() || cleanEmail.split("@")[0];
+      const rawName = data.name || `${data.lastName || ""} ${data.firstName || ""}`.trim() || cleanEmail.split("@")[0];
       const memberDept = (data.department || "").trim();
       const managementNumber = data.managementNumber || "";
 
       const memberObj = {
-        name: memberName,
+        name: rawName,
         department: memberDept,
         managementNumber: managementNumber
       };
@@ -175,10 +176,15 @@ export async function GET(request: Request) {
             const roomMembers = await getRoomMembers(roomId, token);
             const toIds: string[] = [];
 
-            // 💡 【修正点】手動送信と同じ「あいまい検索（includes）」でマッチングさせる
+            // 💡 【改修】スペースを完全除去した状態で照合し、確実にメンションIDを取得する
             memberNames.forEach((name) => {
               const cleanAppName = name.replace(/[\s\u3000]/g, "");
-              const matchedKey = Object.keys(roomMembers).find(memName => memName.includes(cleanAppName));
+              
+              // チャット側の「スペース除去後の名前」と完全に一致または部分一致するか判定
+              const matchedKey = Object.keys(roomMembers).find(memName => 
+                memName === cleanAppName || memName.includes(cleanAppName) || cleanAppName.includes(memName)
+              );
+              
               if (matchedKey) {
                 toIds.push(roomMembers[matchedKey]);
               }
@@ -264,10 +270,14 @@ export async function GET(request: Request) {
             const roomMembers = await getRoomMembers(roomId, token);
             const toIds: string[] = [];
 
-            // 💡 【修正点】手動送信と同じ「あいまい検索（includes）」でマッチングさせる
+            // 💡 【改修】スペースを完全除去した状態で照合し、確実にメンションIDを取得する
             memberNames.forEach((name) => {
               const cleanAppName = name.replace(/[\s\u3000]/g, "");
-              const matchedKey = Object.keys(roomMembers).find(memName => memName.includes(cleanAppName));
+              
+              const matchedKey = Object.keys(roomMembers).find(memName => 
+                memName === cleanAppName || memName.includes(cleanAppName) || cleanAppName.includes(memName)
+              );
+              
               if (matchedKey) {
                 toIds.push(roomMembers[matchedKey]);
               }

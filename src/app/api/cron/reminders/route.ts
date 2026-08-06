@@ -22,7 +22,6 @@ async function sendMembersMessage(
     body: formattedBody,
   };
 
-  // 💡 to_id に対象者の内部IDを渡すことで、MEMBERS側で自動的に青文字メンションが付与されます
   if (toIds.length > 0) {
     payload.to_id = toIds.join(",");
   }
@@ -47,7 +46,7 @@ async function sendMembersMessage(
 // 💡 MEMBERSのルームからメンバー一覧を取得する関数（名前のスペースを徹底除去）
 async function getRoomMembers(roomId: string, token: string): Promise<Record<string, string>> {
   const getUrl = `https://api.mem-bers.jp/web-api/rooms/${roomId}/members`;
-  const memberMap: Record<string, string> = {}; // { "スペースなし名前": "MEMBERS内部ID" }
+  const memberMap: Record<string, string> = {};
 
   try {
     const res = await fetch(getUrl, {
@@ -61,7 +60,6 @@ async function getRoomMembers(roomId: string, token: string): Promise<Record<str
       const json = await res.json();
       const members: MembersApiUser[] = json.member || [];
       members.forEach((m) => {
-        // 名前の半角スペース・全角スペースを完全に削除
         const cleanName = (m.name || "").replace(/[\s\u3000]/g, "");
         if (cleanName) {
           memberMap[cleanName] = String(m.id);
@@ -139,6 +137,9 @@ export async function GET(request: Request) {
 
     const now = new Date();
     const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    
+    // 👑 修正: 当月（今月1日）の日付文字列を作成（例: "2026-08-01"）
+    const firstDayOfCurrentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
 
     const recordsUrl = `${origin}/records`;
     const stampUrl = `${origin}/?action=fix_missing_end`;
@@ -154,7 +155,8 @@ export async function GET(request: Request) {
         const targetEmails = new Set<string>();
         allRecords.forEach((r) => {
           const cleanEmail = (r.email || "").trim().toLowerCase();
-          if (r.workDate < todayStr && !r.verified && r.endTime !== "") {
+          // 👑 修正: 「当月1日以降」かつ「今日より過去」かつ「未確認」の記録のみを抽出
+          if (r.workDate >= firstDayOfCurrentMonthStr && r.workDate < todayStr && !r.verified && r.endTime !== "") {
             targetEmails.add(cleanEmail);
           }
         });
@@ -176,11 +178,8 @@ export async function GET(request: Request) {
             const roomMembers = await getRoomMembers(roomId, token);
             const toIds: string[] = [];
 
-            // 💡 【改修】スペースを完全除去した状態で照合し、確実にメンションIDを取得する
             memberNames.forEach((name) => {
               const cleanAppName = name.replace(/[\s\u3000]/g, "");
-              
-              // チャット側の「スペース除去後の名前」と完全に一致または部分一致するか判定
               const matchedKey = Object.keys(roomMembers).find(memName => 
                 memName === cleanAppName || memName.includes(cleanAppName) || cleanAppName.includes(memName)
               );
@@ -248,7 +247,8 @@ export async function GET(request: Request) {
         const targetEmails = new Set<string>();
         allRecords.forEach((r) => {
           const cleanEmail = (r.email || "").trim().toLowerCase();
-          if (r.endTime === "") {
+          // 👑 修正: 「当月1日以降」の記録で業務終了が未登録のものを抽出
+          if (r.workDate >= firstDayOfCurrentMonthStr && r.endTime === "") {
             targetEmails.add(cleanEmail);
           }
         });
@@ -270,10 +270,8 @@ export async function GET(request: Request) {
             const roomMembers = await getRoomMembers(roomId, token);
             const toIds: string[] = [];
 
-            // 💡 【改修】スペースを完全除去した状態で照合し、確実にメンションIDを取得する
             memberNames.forEach((name) => {
               const cleanAppName = name.replace(/[\s\u3000]/g, "");
-              
               const matchedKey = Object.keys(roomMembers).find(memName => 
                 memName === cleanAppName || memName.includes(cleanAppName) || cleanAppName.includes(memName)
               );

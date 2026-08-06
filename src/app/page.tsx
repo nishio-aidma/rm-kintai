@@ -120,7 +120,7 @@ function DashboardContent() {
   const [fixEndHourInput, setFixEndHourInput] = useState<string>("18");
   const [fixEndMinuteInput, setFixEndMinuteInput] = useState<string>("00");
 
-  // 💡 【新設】未確認データ件数を保持するステート
+  // 未確認データ件数を保持するステート
   const [unverifiedCount, setUnverifiedCount] = useState<number>(0);
 
   const hoursOptions = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
@@ -149,6 +149,8 @@ function DashboardContent() {
 
           const now = new Date();
           const todayStr = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, '0') + "-" + String(now.getDate()).padStart(2, '0');
+          // 👑 当月1日の日付文字列を作成（例: "2026-08-01"）
+          const firstDayOfCurrentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
 
           const [memberMeta, settings, latest] = await Promise.all([
             attendanceRepository.getMemberByEmail(email),
@@ -194,7 +196,8 @@ function DashboardContent() {
 
           querySnapshot.forEach((docSnap) => {
             const data = docSnap.data();
-            if (data.workDate !== todayStr) {
+            // 👑 修正: 「当月1日以降」かつ「今日より過去」の未終了データのみを抽出する
+            if (data.workDate >= firstDayOfCurrentMonthStr && data.workDate < todayStr) {
               hasOldUnfinished = true;
               missingList.push({
                 id: docSnap.id,
@@ -207,7 +210,7 @@ function DashboardContent() {
           missingList.sort((a, b) => b.workDate.localeCompare(a.workDate));
           setMissingEndRecords(missingList);
 
-          // 💡 【新設】過去の未確認データを取得してカウントする処理
+          // 過去の未確認データを取得してカウントする処理
           const unverifiedQuery = query(
             collection(db, "attendance_records"),
             where("email", "==", email),
@@ -218,8 +221,8 @@ function DashboardContent() {
           let count = 0;
           unverifiedSnap.forEach((docSnap) => {
             const data = docSnap.data();
-            // 昨日以前のデータで、終了時間が入力済みのものだけを対象とする
-            if (data.workDate < todayStr && data.endTime !== "") {
+            // 👑 修正: 「当月1日以降」かつ「今日より過去」かつ「終了時間入力済み」の記録のみをカウント
+            if (data.workDate >= firstDayOfCurrentMonthStr && data.workDate < todayStr && data.endTime !== "") {
               count++;
             }
           });
@@ -502,7 +505,7 @@ function DashboardContent() {
 
       <main className="max-w-4xl mx-auto px-4 py-10 space-y-6">
         
-        {/* 💡 【新設】未確認記録がある場合のみ表示される控えめなお知らせバナー */}
+        {/* 未確認記録がある場合のみ表示される控えめなお知らせバナー */}
         {unverifiedCount > 0 && !showUnfinishedWarning && !showFixMissingModal && (
           <div className="bg-amber-50 border border-amber-200 text-amber-700 px-4 py-3 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between shadow-sm animate-fadeIn space-y-2 sm:space-y-0">
             <div className="flex items-center space-x-2">

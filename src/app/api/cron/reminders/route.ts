@@ -43,7 +43,7 @@ async function sendMembersMessage(
   return true;
 }
 
-// 💡 MEMBERSのルームからメンバー一覧を取得する関数（名前のスペースを徹底除去）
+// 💡 MEMBERSのルームからメンバー一覧を取得する関数（名前のスペースを徹底除去＋ログ出力）
 async function getRoomMembers(roomId: string, token: string): Promise<Record<string, string>> {
   const getUrl = `https://api.mem-bers.jp/web-api/rooms/${roomId}/members`;
   const memberMap: Record<string, string> = {};
@@ -59,12 +59,18 @@ async function getRoomMembers(roomId: string, token: string): Promise<Record<str
     if (res.ok) {
       const json = await res.json();
       const members: MembersApiUser[] = json.member || [];
+      
+      console.log(`\n[API通信] ルームID: ${roomId} のメンバーを ${members.length} 名取得しました。`);
+      
       members.forEach((m) => {
         const cleanName = (m.name || "").replace(/[\s\u3000]/g, "");
         if (cleanName) {
           memberMap[cleanName] = String(m.id);
         }
       });
+      
+      // 💡 調査用：MEMBERS側の全メンバーのクリーンアップ済み名前をログ出力
+      console.log(`[MEMBERS側名簿] 変換後のキー一覧:`, Object.keys(memberMap).join(", "));
     }
   } catch (error) {
     console.error(`[MEMBERSメンバー取得エラー] Room:${roomId}`, error);
@@ -78,7 +84,6 @@ export async function GET(request: Request) {
     const { searchParams, origin } = new URL(request.url);
     const notificationType = searchParams.get("type"); // "unverified" | "mid_submission" | "monthend_submission" | "missing_end" | null
 
-    // 1. データベースから通知設定を取得
     const settingsRef = doc(db, "settings", "notifications");
     const settingsSnap = await getDoc(settingsRef);
 
@@ -94,7 +99,6 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: false, message: "MEMBERS APIトークンが設定されていません。" }, { status: 400 });
     }
 
-    // 2. 通常枠（members）と固定保護枠（fixed_members）の両方からメンバー情報を一括取得
     const [membersSnap, fixedSnap] = await Promise.all([
       getDocs(collection(db, "members")),
       getDocs(collection(db, "fixed_members"))
@@ -117,18 +121,13 @@ export async function GET(request: Request) {
         managementNumber: managementNumber
       };
 
-      if (cleanEmail) {
-        memberLookupMap[cleanEmail] = memberObj;
-      }
-      if (cleanLoginEmail) {
-        memberLookupMap[cleanLoginEmail] = memberObj;
-      }
+      if (cleanEmail) memberLookupMap[cleanEmail] = memberObj;
+      if (cleanLoginEmail) memberLookupMap[cleanLoginEmail] = memberObj;
     };
 
     membersSnap.forEach(registerMemberToMap);
     fixedSnap.forEach(registerMemberToMap);
 
-    // 3. 打刻記録を取得
     const recordsSnap = await getDocs(query(collection(db, "attendance_records"), where("deleted", "==", false)));
     const allRecords: any[] = [];
     recordsSnap.forEach((d) => {
@@ -137,9 +136,7 @@ export async function GET(request: Request) {
 
     const now = new Date();
     const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-    
-    // 👑 修正: 当月（今月1日）の日付文字列を作成（例: "2026-08-01"）
-    const firstDayOfCurrentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+    const firstDayOfCurrentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
 
     const recordsUrl = `${origin}/records`;
     const stampUrl = `${origin}/?action=fix_missing_end`;
@@ -155,7 +152,6 @@ export async function GET(request: Request) {
         const targetEmails = new Set<string>();
         allRecords.forEach((r) => {
           const cleanEmail = (r.email || "").trim().toLowerCase();
-          // 👑 修正: 「当月1日以降」かつ「今日より過去」かつ「未確認」の記録のみを抽出
           if (r.workDate >= firstDayOfCurrentMonthStr && r.workDate < todayStr && !r.verified && r.endTime !== "") {
             targetEmails.add(cleanEmail);
           }
@@ -178,16 +174,26 @@ export async function GET(request: Request) {
             const roomMembers = await getRoomMembers(roomId, token);
             const toIds: string[] = [];
 
+            console.log(`\n=== 🔍 メンション照合開始（${dept}チーム / ${memberNames.length}名） ===`);
+
             memberNames.forEach((name) => {
               const cleanAppName = name.replace(/[\s\u3000]/g, "");
+              
               const matchedKey = Object.keys(roomMembers).find(memName => 
                 memName === cleanAppName || memName.includes(cleanAppName) || cleanAppName.includes(memName)
               );
               
+              // 💡 調査用：誰と誰を比較して、どういう結果になったかを出力
+              console.log(`[対象] アプリ登録名: "${name}" -> 変換後: "${cleanAppName}"`);
               if (matchedKey) {
+                console.log(`  -> 🟢 成功: MEMBERS側の "${matchedKey}" (ID: ${roomMembers[matchedKey]}) に一致しました`);
                 toIds.push(roomMembers[matchedKey]);
+              } else {
+                console.log(`  -> ❌ 失敗: MEMBERS名簿の中に一致する名前が見つかりませんでした`);
               }
             });
+
+            console.log(`=== メンション照合終了 ===\n`);
 
             let msg = config.message || "";
             msg = msg.replace(/\[自分の記録URL\]/g, recordsUrl);
@@ -247,7 +253,6 @@ export async function GET(request: Request) {
         const targetEmails = new Set<string>();
         allRecords.forEach((r) => {
           const cleanEmail = (r.email || "").trim().toLowerCase();
-          // 👑 修正: 「当月1日以降」の記録で業務終了が未登録のものを抽出
           if (r.workDate >= firstDayOfCurrentMonthStr && r.endTime === "") {
             targetEmails.add(cleanEmail);
           }
@@ -270,16 +275,25 @@ export async function GET(request: Request) {
             const roomMembers = await getRoomMembers(roomId, token);
             const toIds: string[] = [];
 
+            console.log(`\n=== 🔍 打刻忘れメンション照合開始（${dept}チーム） ===`);
+
             memberNames.forEach((name) => {
               const cleanAppName = name.replace(/[\s\u3000]/g, "");
+              
               const matchedKey = Object.keys(roomMembers).find(memName => 
                 memName === cleanAppName || memName.includes(cleanAppName) || cleanAppName.includes(memName)
               );
               
+              console.log(`[対象] アプリ登録名: "${name}" -> 変換後: "${cleanAppName}"`);
               if (matchedKey) {
+                console.log(`  -> 🟢 成功: MEMBERS側の "${matchedKey}" (ID: ${roomMembers[matchedKey]}) に一致しました`);
                 toIds.push(roomMembers[matchedKey]);
+              } else {
+                console.log(`  -> ❌ 失敗: MEMBERS名簿の中に一致する名前が見つかりませんでした`);
               }
             });
+
+            console.log(`=== メンション照合終了 ===\n`);
 
             let msg = config.message || "";
             msg = msg.replace(/\[自分の記録URL\]/g, recordsUrl);

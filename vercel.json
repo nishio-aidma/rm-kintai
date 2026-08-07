@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/cron/reminders?type=unverified",
-      "schedule": "0 3 * * *"
+      "schedule": "45 23 * * *"
     },
     {
       "path": "/api/cron/reminders?type=submission",

@@ -183,10 +183,27 @@ export default function TabSummary({
     departmentSummaries[deptName].totalReward += totalReward;
   });
 
+  // 💡 【改修】チーム総報酬額が高い順（降順）に並び替えるソートロジックを追加
   const filteredDeptKeys = allPossibleDepts.filter(dept => {
     if (filterDepartment !== "all" && dept !== filterDepartment) return false;
     const data = departmentSummaries[dept];
     return data && (data.memberCount > 0 || data.hasAttendance);
+  }).sort((a, b) => {
+    const dataA = departmentSummaries[a];
+    const dataB = departmentSummaries[b];
+
+    // 1. チーム総報酬額（税抜）が高い順（金額が大きい方を上へ）
+    if (dataB.totalReward !== dataA.totalReward) {
+      return dataB.totalReward - dataA.totalReward;
+    }
+
+    // 2. 報酬額が同じ場合（例：共に0円）、総稼働時間が長い順
+    if (dataB.totalMinutes !== dataA.totalMinutes) {
+      return dataB.totalMinutes - dataA.totalMinutes;
+    }
+
+    // 3. それでも同じ場合、対象稼働人数が多い順
+    return dataB.memberCount - dataA.memberCount;
   });
 
   useEffect(() => {
@@ -209,7 +226,6 @@ export default function TabSummary({
     }
   };
 
-  // 💡 【修正】ボタンクリック時の通知ロジック：未提出者がいない場合は親切なポップアップを表示
   const handleNotifySelected = async () => {
     if (selectedEmails.length === 0) return;
 
@@ -226,7 +242,6 @@ export default function TabSummary({
         dept: defaultGetMemberMeta(email).department || "未設定"
       }));
 
-    // 💡 提出済みの人しか選ばれていない場合のお知らせ表示
     if (unsubmittedTargets.length === 0) {
       setModalData({
         type: "info",
@@ -240,7 +255,6 @@ export default function TabSummary({
       return;
     }
 
-    // 💡 未提出者が含まれる場合の送信確認表示
     setModalData({
       type: "confirm",
       title: "MEMBER-S 個別催促通知",
@@ -477,7 +491,7 @@ export default function TabSummary({
         )
       )}
 
-      {/* 💡 カスタムポップアップ（送信確認 ＆ 対象外お知らせ） */}
+      {/* カスタムポップアップ（送信確認 ＆ 対象外お知らせ） */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[999] animate-fadeIn">
           <div className="bg-white rounded-3xl p-6 max-w-sm w-full mx-4 shadow-2xl border border-gray-100 text-center space-y-4 animate-scaleUp">

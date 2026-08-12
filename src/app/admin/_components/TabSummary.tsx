@@ -44,7 +44,7 @@ export default function TabSummary({
 
   const [currentUserRole, setCurrentUserRole] = useState<"admin" | "owner">("admin");
 
-  // モーダルの表示用ステート（type: "confirm" | "info" で送信確認とお知らせを切り替え）
+  // モーダルの表示用ステート
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalData, setModalData] = useState<{
     type: "confirm" | "info";
@@ -183,7 +183,7 @@ export default function TabSummary({
     departmentSummaries[deptName].totalReward += totalReward;
   });
 
-  // 💡 【改修】チーム総報酬額が高い順（降順）に並び替えるソートロジックを追加
+  // チーム総報酬額が高い順に並び替え
   const filteredDeptKeys = allPossibleDepts.filter(dept => {
     if (filterDepartment !== "all" && dept !== filterDepartment) return false;
     const data = departmentSummaries[dept];
@@ -192,19 +192,46 @@ export default function TabSummary({
     const dataA = departmentSummaries[a];
     const dataB = departmentSummaries[b];
 
-    // 1. チーム総報酬額（税抜）が高い順（金額が大きい方を上へ）
     if (dataB.totalReward !== dataA.totalReward) {
       return dataB.totalReward - dataA.totalReward;
     }
-
-    // 2. 報酬額が同じ場合（例：共に0円）、総稼働時間が長い順
     if (dataB.totalMinutes !== dataA.totalMinutes) {
       return dataB.totalMinutes - dataA.totalMinutes;
     }
-
-    // 3. それでも同じ場合、対象稼働人数が多い順
     return dataB.memberCount - dataA.memberCount;
   });
+
+  // 👑 【新設】「user別」モードでの表示データ全体合計の内部計算
+  const userGrandTotalMinutes = displayedEmails.reduce((sum, email) => {
+    const userRecords = (attendanceRecords as AdminAttendanceRecord[]).filter(r => r.workDate.startsWith(selectedMonth) && r.email === email);
+    return sum + userRecords.reduce((s, r) => s + (r.workMinutes ?? Math.round((r.workHours || 0) * 60)), 0);
+  }, 0);
+
+  const userGrandTotalReward = displayedEmails.reduce((sum, email) => {
+    const meta = defaultGetMemberMeta(email);
+    const userRecords = (attendanceRecords as AdminAttendanceRecord[]).filter(r => r.workDate.startsWith(selectedMonth) && r.email === email);
+    const totalHours = userRecords.reduce((s, r) => s + (r.workHours || 0), 0);
+    const roundedHours = Math.round(totalHours * 100) / 100;
+    return sum + Math.round(roundedHours * meta.hourlyRate);
+  }, 0);
+
+  // 👑 【新設】「所属別」モードでの表示データ全体合計の内部計算
+  const deptGrandTotalMinutes = filteredDeptKeys.reduce((sum, dept) => {
+    const data = departmentSummaries[dept];
+    return sum + (data ? data.totalMinutes : 0);
+  }, 0);
+
+  const deptGrandTotalReward = filteredDeptKeys.reduce((sum, dept) => {
+    const data = departmentSummaries[dept];
+    return sum + (data ? data.totalReward : 0);
+  }, 0);
+
+  // 現在の表示モードに応じた最終的な合計値
+  const activeGrandTotalMinutes = viewMode === "user" ? userGrandTotalMinutes : deptGrandTotalMinutes;
+  const activeGrandTotalReward = viewMode === "user" ? userGrandTotalReward : deptGrandTotalReward;
+
+  const grandTotalH = Math.floor(activeGrandTotalMinutes / 60);
+  const grandTotalM = activeGrandTotalMinutes % 60;
 
   useEffect(() => {
     setSelectedEmails([]);
@@ -331,6 +358,41 @@ export default function TabSummary({
             </button>
           )}
         </div>
+      </div>
+
+      {/* 👑 【新設】最上段に常時表示される全体の合計稼働時間 ＆ 合計報酬額サマリーカード */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+        <div className="bg-emerald-50/60 p-3.5 rounded-xl border border-emerald-100 shadow-sm flex items-center justify-between">
+          <div className="space-y-0.5">
+            <p className="text-[11px] font-bold text-emerald-800 flex items-center space-x-1">
+              <span>⏱️</span>
+              <span>{viewMode === "user" ? "表示中メンバーの合計稼働時間" : "表示中チームの合計稼働時間"}</span>
+            </p>
+            <p className="text-xl font-black text-gray-900 font-mono tracking-tight tabular-nums">
+              {grandTotalH} <span className="text-xs font-bold text-gray-500">時間</span> {grandTotalM} <span className="text-xs font-bold text-gray-500">分</span>
+            </p>
+          </div>
+          <span className="text-xs text-emerald-600 font-extrabold bg-white px-2.5 py-1 rounded-lg border border-emerald-200 shadow-2xs">
+            {viewMode === "user" ? `${displayedEmails.length} 名分` : `${filteredDeptKeys.length} チーム分`}
+          </span>
+        </div>
+
+        {currentUserRole === "owner" && (
+          <div className="bg-emerald-50/60 p-3.5 rounded-xl border border-emerald-100 shadow-sm flex items-center justify-between">
+            <div className="space-y-0.5">
+              <p className="text-[11px] font-bold text-emerald-800 flex items-center space-x-1">
+                <span>💴</span>
+                <span>{viewMode === "user" ? "表示中メンバーの合計報酬額（税抜）" : "表示中チームの合計報酬額（税抜）"}</span>
+              </p>
+              <p className="text-xl font-black text-emerald-600 font-mono tracking-tight tabular-nums">
+                ¥{activeGrandTotalReward.toLocaleString()}
+              </p>
+            </div>
+            <span className="text-xs text-emerald-600 font-extrabold bg-white px-2.5 py-1 rounded-lg border border-emerald-200 shadow-2xs">
+              総支払予定額
+            </span>
+          </div>
+        )}
       </div>
 
       {viewMode === "user" ? (
@@ -491,7 +553,7 @@ export default function TabSummary({
         )
       )}
 
-      {/* カスタムポップアップ（送信確認 ＆ 対象外お知らせ） */}
+      {/* カスタムポップアップ */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[999] animate-fadeIn">
           <div className="bg-white rounded-3xl p-6 max-w-sm w-full mx-4 shadow-2xl border border-gray-100 text-center space-y-4 animate-scaleUp">

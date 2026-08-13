@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { MemberInfo } from "@/lib/attendanceRepository";
 
 interface AdminAttendanceRecord {
@@ -38,6 +39,7 @@ export default function TabSummary({
   getMemberMeta,
   handleExportRewardCSV
 }: TabSummaryProps) {
+  const router = useRouter();
   
   const [isNotifying, setIsNotifying] = useState(false);
   const [selectedEmails, setSelectedEmails] = useState<string[]>([]);
@@ -86,7 +88,7 @@ export default function TabSummary({
     new Set((attendanceRecords as AdminAttendanceRecord[]).filter(r => r.workDate.startsWith(selectedMonth)).map(r => r.email))
   );
 
-  // 👑 【改修】「user別」表示でも報酬額（税抜）が高い順（降順）に並び替えるソートロジックを追加
+  // 「user別」表示で報酬額（税抜）が高い順に並び替え
   const displayedEmails = allSummaryEmails.filter(email => {
     const meta = defaultGetMemberMeta(email);
     if (filterDepartment !== "all" && meta.department !== filterDepartment) return false;
@@ -108,12 +110,10 @@ export default function TabSummary({
     const totalHoursB = userRecordsB.reduce((sum, r) => sum + (r.workHours || 0), 0);
     const rewardB = Math.round(Math.round(totalHoursB * 100) / 100 * metaB.hourlyRate);
 
-    // 1. 報酬額（税抜）が高い順
     if (rewardB !== rewardA) {
       return rewardB - rewardA;
     }
 
-    // 2. 報酬額が同額の場合、総稼働時間（分）が長い順
     const minutesA = userRecordsA.reduce((sum, r) => sum + (r.workMinutes ?? Math.round((r.workHours || 0) * 60)), 0);
     const minutesB = userRecordsB.reduce((sum, r) => sum + (r.workMinutes ?? Math.round((r.workHours || 0) * 60)), 0);
     return minutesB - minutesA;
@@ -222,7 +222,7 @@ export default function TabSummary({
     return dataB.memberCount - dataA.memberCount;
   });
 
-  // 「user別」モードでの表示データ全体合計の内部計算
+  // 「user別」モードでの表示データ全体合計
   const userGrandTotalMinutes = displayedEmails.reduce((sum, email) => {
     const userRecords = (attendanceRecords as AdminAttendanceRecord[]).filter(r => r.workDate.startsWith(selectedMonth) && r.email === email);
     return sum + userRecords.reduce((s, r) => s + (r.workMinutes ?? Math.round((r.workHours || 0) * 60)), 0);
@@ -236,7 +236,7 @@ export default function TabSummary({
     return sum + Math.round(roundedHours * meta.hourlyRate);
   }, 0);
 
-  // 「所属別」モードでの表示データ全体合計の内部計算
+  // 「所属別」モードでの表示データ全体合計
   const deptGrandTotalMinutes = filteredDeptKeys.reduce((sum, dept) => {
     const data = departmentSummaries[dept];
     return sum + (data ? data.totalMinutes : 0);
@@ -247,7 +247,6 @@ export default function TabSummary({
     return sum + (data ? data.totalReward : 0);
   }, 0);
 
-  // 現在の表示モードに応じた最終的な合計値
   const activeGrandTotalMinutes = viewMode === "user" ? userGrandTotalMinutes : deptGrandTotalMinutes;
   const activeGrandTotalReward = viewMode === "user" ? userGrandTotalReward : deptGrandTotalReward;
 
@@ -345,7 +344,7 @@ export default function TabSummary({
       </div>
 
       <div className="flex items-center justify-between bg-gray-50 p-2 rounded-xl border border-gray-100 gap-4 animate-fadeIn">
-        <div className="flex items-center">
+        <div className="flex items-center space-x-2">
           {viewMode === "user" && (
             <button
               onClick={handleNotifySelected}
@@ -353,6 +352,16 @@ export default function TabSummary({
               className="bg-amber-500 hover:bg-amber-600 disabled:opacity-40 disabled:hover:bg-amber-500 text-white text-xs font-black px-3 py-1.5 rounded-lg shadow-sm transition-all flex items-center space-x-1 h-8 cursor-pointer"
             >
               <span>📢 {isNotifying ? "送信中..." : `選択した ${selectedEmails.length} 名へ催促通知`}</span>
+            </button>
+          )}
+
+          {/* 👑 【新設】特設ページ（週別集計画面）への遷移ボタン */}
+          {currentUserRole === "owner" && (
+            <button
+              onClick={() => router.push(`/admin/weekly-summary?month=${selectedMonth}`)}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black px-3 py-1.5 rounded-lg shadow-sm transition-all flex items-center space-x-1 h-8 cursor-pointer"
+            >
+              <span>📅 週別の集計を見る ➔</span>
             </button>
           )}
         </div>
@@ -381,7 +390,7 @@ export default function TabSummary({
         </div>
       </div>
 
-      {/* 最上段に常時表示される全体の合計稼働時間 ＆ 合計報酬額サマリーカード */}
+      {/* 最上段サマリーカード */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
         <div className="bg-emerald-50/60 p-3.5 rounded-xl border border-emerald-100 shadow-sm flex items-center justify-between">
           <div className="space-y-0.5">

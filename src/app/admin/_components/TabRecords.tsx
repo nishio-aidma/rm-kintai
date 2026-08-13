@@ -10,10 +10,12 @@ function ScrollWheelPicker({
   options,
   value,
   onChange,
+  disabled = false,
 }: {
   options: string[];
   value: string;
   onChange: (val: string) => void;
+  disabled?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const isAutoScrolling = useRef(false);
@@ -33,7 +35,7 @@ function ScrollWheelPicker({
   }, [value, options]);
 
   const handleScroll = () => {
-    if (isAutoScrolling.current) return;
+    if (disabled || isAutoScrolling.current) return;
 
     if (containerRef.current) {
       const currentScroll = containerRef.current.scrollTop;
@@ -45,12 +47,17 @@ function ScrollWheelPicker({
   };
 
   const handleItemClick = (opt: string) => {
+    if (disabled) return;
     onChange(opt);
   };
 
   return (
-    <div className="relative h-[120px] w-16 overflow-hidden select-none bg-gray-50/50 rounded-xl border border-gray-100">
-      <div className="absolute top-[40px] left-1 right-1 h-[40px] bg-[#34C759]/15 border-2 border-[#34C759] rounded-lg pointer-events-none z-0" />
+    <div className={`relative h-[120px] w-16 overflow-hidden select-none rounded-xl border transition-all ${
+      disabled ? "bg-gray-100/80 border-gray-200 opacity-40 pointer-events-none" : "bg-gray-50/50 border-gray-100"
+    }`}>
+      <div className={`absolute top-[40px] left-1 right-1 h-[40px] border-2 rounded-lg pointer-events-none z-0 ${
+        disabled ? "bg-gray-200/50 border-gray-300" : "bg-[#34C759]/15 border-[#34C759]"
+      }`} />
       <div
         ref={containerRef}
         onScroll={handleScroll}
@@ -118,9 +125,12 @@ export default function TabRecords({
     return now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, '0') + "-" + String(now.getDate()).padStart(2, '0');
   });
 
-  // 💡 文字入力からドラムロール選択用の分割ステートに変更
+  // ドラムロール選択用の分割ステート
   const [createStartHour, setCreateStartHour] = useState("09");
   const [createStartMinute, setCreateStartMinute] = useState("00");
+  
+  // 👑 【新設】業務終了時間を設定するかどうかのフラグ（初期値: true＝設定する）
+  const [hasEndTime, setHasEndTime] = useState(true);
   const [createEndHour, setCreateEndHour] = useState("18");
   const [createEndMinute, setCreateEndMinute] = useState("00");
 
@@ -156,29 +166,37 @@ export default function TabRecords({
 
   const handleSaveCreate = async () => {
     if (!createEmail) {
-      alert("稼働を記録するメンバーをプルダウンから選択してください。");
+      setStatusMessage("⚠️ エラー：稼働を記録するメンバーを選択してください。");
+      setTimeout(() => setStatusMessage(null), 4000);
       return;
     }
     if (!createDate) {
-      alert("勤務日は必須項目です。");
+      setStatusMessage("⚠️ エラー：勤務日は必須項目です。");
+      setTimeout(() => setStatusMessage(null), 4000);
       return;
     }
 
     const createStart = `${createStartHour}:${createStartMinute}`;
-    const createEnd = `${createEndHour}:${createEndMinute}`;
+    // 👑 業務終了を設定しない場合は空文字にする（これで稼働中データになる）
+    const createEnd = hasEndTime ? `${createEndHour}:${createEndMinute}` : "";
 
-    try {
-      const [startH, startM] = [parseInt(createStartHour, 10), parseInt(createStartMinute, 10)];
-      const [endH, endM] = [parseInt(createEndHour, 10), parseInt(createEndMinute, 10)];
-      
-      const totalDiff = (endH * 60 + endM) - (startH * 60 + startM);
-      if (totalDiff <= 0) {
-        alert("⚠️ エラー：終了時間は開始時間よりも後の時刻を指定してください。");
+    // 終了時間が設定されている場合のみ時間の前後チェックを行う
+    if (hasEndTime) {
+      try {
+        const [startH, startM] = [parseInt(createStartHour, 10), parseInt(createStartMinute, 10)];
+        const [endH, endM] = [parseInt(createEndHour, 10), parseInt(createEndMinute, 10)];
+        
+        const totalDiff = (endH * 60 + endM) - (startH * 60 + startM);
+        if (totalDiff <= 0) {
+          setStatusMessage("⚠️ エラー：終了時間は開始時間よりも後の時刻を指定してください。");
+          setTimeout(() => setStatusMessage(null), 4000);
+          return;
+        }
+      } catch (e) {
+        setStatusMessage("⚠️ エラー：時間の計算に失敗しました。");
+        setTimeout(() => setStatusMessage(null), 4000);
         return;
       }
-    } catch (e) {
-      alert("⚠️ エラー：時間の計算に失敗しました。");
-      return;
     }
 
     try {
@@ -200,14 +218,16 @@ export default function TabRecords({
       setCreateEmail("");
       setCreateStartHour("09");
       setCreateStartMinute("00");
+      setHasEndTime(true);
       setCreateEndHour("18");
       setCreateEndMinute("00");
 
-      setStatusMessage("稼働記録を新規作成・自動計算しました！");
+      setStatusMessage(hasEndTime ? "稼働記録を新規作成・自動計算しました！" : "稼働中の記録を新規作成しました！");
       setTimeout(() => setStatusMessage(null), 3000);
       await loadAllData();
     } catch (error: any) {
-      alert(error.message || "稼働記録の新規追加に失敗しました。");
+      setStatusMessage(error.message || "⚠️ エラー：稼働記録の新規追加に失敗しました。");
+      setTimeout(() => setStatusMessage(null), 4000);
     }
   };
 
@@ -376,7 +396,7 @@ export default function TabRecords({
         )}
       </div>
 
-      {/* 💡 【改良】ドラムロール式時間選択UIを取り入れた手動追加モーダル */}
+      {/* 👑 【改修】「開始時間のみ（業務終了なし＝稼働中）」でも作成できる手動追加モーダル */}
       {showCreateModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 text-xs font-sans p-4">
           <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl border border-gray-100 text-left space-y-4 animate-fadeIn max-h-[90vh] overflow-y-auto">
@@ -405,7 +425,7 @@ export default function TabRecords({
                 <input type="date" value={createDate} onChange={(e) => setCreateDate(e.target.value)} className="w-full border border-gray-200 rounded-xl px-3 py-2 bg-white text-gray-700 font-medium text-xs focus:outline-none cursor-pointer" />
               </div>
 
-              {/* 🍏 ドラムロール選択UI（業務開始 & 業務終了） */}
+              {/* 👑 ドラムロール選択UI（業務開始 & 業務終了） */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-gray-50/60 p-3 rounded-2xl border border-gray-100">
                 
                 {/* 業務開始 */}
@@ -438,30 +458,54 @@ export default function TabRecords({
 
                 {/* 業務終了 */}
                 <div className="space-y-1 text-center">
-                  <label className="text-[10px] font-bold text-gray-700 block">業務終了時間</label>
-                  <div className="flex items-center justify-center space-x-1 bg-white p-1.5 rounded-xl border border-gray-200 shadow-sm">
-                    <ScrollWheelPicker options={hoursOptions} value={createEndHour} onChange={setCreateEndHour} />
-                    <span className="font-mono font-bold text-xs text-gray-400">時</span>
-                    <span className="text-base font-black text-gray-800 font-mono">:</span>
-                    <ScrollWheelPicker options={minutesOptions} value={createEndMinute} onChange={setCreateEndMinute} />
-                    <span className="font-mono font-bold text-xs text-gray-400">分</span>
+                  <div className="flex items-center justify-center space-x-1 mb-1">
+                    <input 
+                      type="checkbox" 
+                      id="hasEndTimeCheck"
+                      checked={hasEndTime} 
+                      onChange={(e) => setHasEndTime(e.target.checked)} 
+                      className="w-3.5 h-3.5 rounded border-gray-300 text-emerald-500 focus:ring-emerald-400 cursor-pointer"
+                    />
+                    <label htmlFor="hasEndTimeCheck" className="text-[10px] font-bold text-gray-700 cursor-pointer select-none">
+                      業務終了を設定する
+                    </label>
                   </div>
-                  <div className="flex justify-center space-x-1 pt-1">
-                    {["00", "15", "30", "45"].map((min) => (
-                      <button
-                        key={min}
-                        type="button"
-                        onClick={() => setCreateEndMinute(min)}
-                        className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition-all cursor-pointer font-mono ${
-                          createEndMinute === min
-                            ? "bg-gray-800 text-white shadow-sm"
-                            : "bg-gray-200 text-gray-600 hover:bg-gray-300"
-                        }`}
-                      >
-                        {min}分
-                      </button>
-                    ))}
-                  </div>
+
+                  {hasEndTime ? (
+                    <>
+                      <div className="flex items-center justify-center space-x-1 bg-white p-1.5 rounded-xl border border-gray-200 shadow-sm">
+                        <ScrollWheelPicker options={hoursOptions} value={createEndHour} onChange={setCreateEndHour} />
+                        <span className="font-mono font-bold text-xs text-gray-400">時</span>
+                        <span className="text-base font-black text-gray-800 font-mono">:</span>
+                        <ScrollWheelPicker options={minutesOptions} value={createEndMinute} onChange={setCreateEndMinute} />
+                        <span className="font-mono font-bold text-xs text-gray-400">分</span>
+                      </div>
+                      <div className="flex justify-center space-x-1 pt-1">
+                        {["00", "15", "30", "45"].map((min) => (
+                          <button
+                            key={min}
+                            type="button"
+                            onClick={() => setCreateEndMinute(min)}
+                            className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition-all cursor-pointer font-mono ${
+                              createEndMinute === min
+                                ? "bg-gray-800 text-white shadow-sm"
+                                : "bg-gray-200 text-gray-600 hover:bg-gray-300"
+                            }`}
+                          >
+                            {min}分
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="h-[155px] bg-amber-50/60 border border-amber-200/80 rounded-xl p-3 flex flex-col items-center justify-center text-center space-y-1">
+                      <span className="text-base">⏳</span>
+                      <p className="text-[11px] font-black text-amber-700">「稼働中」として登録</p>
+                      <p className="text-[9px] font-medium text-amber-600/80 leading-relaxed">
+                        業務終了時間を指定せず、開始打刻のみのデータを作成します
+                      </p>
+                    </div>
+                  )}
                 </div>
 
               </div>

@@ -87,7 +87,7 @@ function WeeklySummaryContent() {
     return matched ? matched.hourlyRate : 0;
   };
 
-  // 👑 【メイン処理】指定した月の「月曜始まり〜日曜終わり」の週リストを作成・集計する
+  // 👑 【修正】選択された月（selectedMonth）に属する打刻データのみを集計するように修正
   const calculateWeeklySummaries = (): WeekPeriod[] => {
     const [yearStr, monthStr] = selectedMonth.split("-");
     const year = parseInt(yearStr, 10);
@@ -126,8 +126,12 @@ function WeeklySummaryContent() {
       const startLabel = `${currentMonday.getMonth() + 1}/${currentMonday.getDate()}(月)`;
       const endLabel = `${currentSunday.getMonth() + 1}/${currentSunday.getDate()}(日)`;
 
-      // この週（月曜〜日曜）の範囲に入る打刻データを抽出
-      const weekRecords = attendanceRecords.filter(r => r.workDate >= startYMD && r.workDate <= endYMD);
+      // 👑 【修正箇所】この週（月曜〜日曜）の範囲に入り、かつ「選択中の月（selectedMonth）」に該当するデータのみを抽出
+      const weekRecords = attendanceRecords.filter(r => 
+        r.workDate >= startYMD && 
+        r.workDate <= endYMD && 
+        r.workDate.startsWith(selectedMonth)
+      );
 
       // 時間と報酬を合算
       let totalMinutes = 0;
@@ -180,7 +184,7 @@ function WeeklySummaryContent() {
 
         <button 
           onClick={() => router.push("/admin")} 
-          className="text-xs font-bold bg-emerald-50 text-emerald-600 hover:bg-emerald-100 px-3.5 py-2 rounded-xl transition-all"
+          className="text-xs font-bold bg-emerald-50 text-emerald-600 hover:bg-emerald-100 px-3.5 py-2 rounded-xl transition-all cursor-pointer"
         >
           ← 管理者画面に戻る
         </button>
@@ -225,7 +229,7 @@ function WeeklySummaryContent() {
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden p-4 space-y-3">
           <div className="flex items-center justify-between border-b border-gray-100 pb-2">
             <h2 className="text-xs font-bold text-gray-500">
-              月曜始まり 〜 日曜終わり（当月自動集計）
+              月曜始まり 〜 日曜終わり（選択月のみ集計）
             </h2>
             <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded-md font-bold">
               全 {weeklyList.length} 週

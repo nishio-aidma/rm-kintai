@@ -86,6 +86,7 @@ export default function TabSummary({
     new Set((attendanceRecords as AdminAttendanceRecord[]).filter(r => r.workDate.startsWith(selectedMonth)).map(r => r.email))
   );
 
+  // 👑 【改修】「user別」表示でも報酬額（税抜）が高い順（降順）に並び替えるソートロジックを追加
   const displayedEmails = allSummaryEmails.filter(email => {
     const meta = defaultGetMemberMeta(email);
     if (filterDepartment !== "all" && meta.department !== filterDepartment) return false;
@@ -96,6 +97,26 @@ export default function TabSummary({
     if (statusFilter === "submitted") return isSubmitted;
     if (statusFilter === "unsubmitted") return !isSubmitted;
     return true;
+  }).sort((a, b) => {
+    const metaA = defaultGetMemberMeta(a);
+    const userRecordsA = (attendanceRecords as AdminAttendanceRecord[]).filter(r => r.workDate.startsWith(selectedMonth) && r.email === a);
+    const totalHoursA = userRecordsA.reduce((sum, r) => sum + (r.workHours || 0), 0);
+    const rewardA = Math.round(Math.round(totalHoursA * 100) / 100 * metaA.hourlyRate);
+
+    const metaB = defaultGetMemberMeta(b);
+    const userRecordsB = (attendanceRecords as AdminAttendanceRecord[]).filter(r => r.workDate.startsWith(selectedMonth) && r.email === b);
+    const totalHoursB = userRecordsB.reduce((sum, r) => sum + (r.workHours || 0), 0);
+    const rewardB = Math.round(Math.round(totalHoursB * 100) / 100 * metaB.hourlyRate);
+
+    // 1. 報酬額（税抜）が高い順
+    if (rewardB !== rewardA) {
+      return rewardB - rewardA;
+    }
+
+    // 2. 報酬額が同額の場合、総稼働時間（分）が長い順
+    const minutesA = userRecordsA.reduce((sum, r) => sum + (r.workMinutes ?? Math.round((r.workHours || 0) * 60)), 0);
+    const minutesB = userRecordsB.reduce((sum, r) => sum + (r.workMinutes ?? Math.round((r.workHours || 0) * 60)), 0);
+    return minutesB - minutesA;
   });
 
   const isAllSubmitted = allSummaryEmails.length > 0 && allSummaryEmails.every(email => {
@@ -201,7 +222,7 @@ export default function TabSummary({
     return dataB.memberCount - dataA.memberCount;
   });
 
-  // 👑 【新設】「user別」モードでの表示データ全体合計の内部計算
+  // 「user別」モードでの表示データ全体合計の内部計算
   const userGrandTotalMinutes = displayedEmails.reduce((sum, email) => {
     const userRecords = (attendanceRecords as AdminAttendanceRecord[]).filter(r => r.workDate.startsWith(selectedMonth) && r.email === email);
     return sum + userRecords.reduce((s, r) => s + (r.workMinutes ?? Math.round((r.workHours || 0) * 60)), 0);
@@ -215,7 +236,7 @@ export default function TabSummary({
     return sum + Math.round(roundedHours * meta.hourlyRate);
   }, 0);
 
-  // 👑 【新設】「所属別」モードでの表示データ全体合計の内部計算
+  // 「所属別」モードでの表示データ全体合計の内部計算
   const deptGrandTotalMinutes = filteredDeptKeys.reduce((sum, dept) => {
     const data = departmentSummaries[dept];
     return sum + (data ? data.totalMinutes : 0);
@@ -360,7 +381,7 @@ export default function TabSummary({
         </div>
       </div>
 
-      {/* 👑 【新設】最上段に常時表示される全体の合計稼働時間 ＆ 合計報酬額サマリーカード */}
+      {/* 最上段に常時表示される全体の合計稼働時間 ＆ 合計報酬額サマリーカード */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
         <div className="bg-emerald-50/60 p-3.5 rounded-xl border border-emerald-100 shadow-sm flex items-center justify-between">
           <div className="space-y-0.5">

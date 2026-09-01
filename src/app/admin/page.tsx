@@ -78,7 +78,6 @@ export default function AdminPage() {
   const [viewMode, setViewMode] = useState<"user" | "department">("user");
   const [filterDepartment, setFilterDepartment] = useState<string>("all");
 
-  // 💡 【新設】「稼働記録」タブ専用のチームフィルター用ステート
   const [filterRecordDepartment, setFilterRecordDepartment] = useState<string>("all");
 
   const [showEditModal, setShowEditModal] = useState(false);
@@ -329,16 +328,21 @@ export default function AdminPage() {
     const lines = text.split(/\r?\n/);
     const headers = splitCSVLine(lines[0] || "");
     
-    const idxId = headers.findIndex(h => h === "ID");
-    const idxNo = headers.findIndex(h => h === "管理番号");
-    const idxLastName = headers.findIndex(h => h === "苗字");
-    const idxLastNameKana = headers.findIndex(h => h === "苗字カナ");
-    const idxFirstName = headers.findIndex(h => h === "名前");
-    const idxFirstNameKana = headers.findIndex(h => h === "名前カナ");
-    const idxEmail = headers.findIndex(h => h === "メール");
-    const idxRate = headers.findIndex(h => h === "時給");
-    const idxMedia = headers.findIndex(h => h === "求人媒体");
-    const idxCreatedAt = headers.findIndex(h => h === "作成日時");
+    const idxId = headers.findIndex(h => h === "ID" || h.includes("ID"));
+    const idxNo = headers.findIndex(h => h === "管理番号" || h.includes("管理番号"));
+    const idxLastName = headers.findIndex(h => h === "苗字" || h.includes("苗字"));
+    const idxLastNameKana = headers.findIndex(h => h === "苗字カナ" || h.includes("苗字カナ"));
+    const idxFirstName = headers.findIndex(h => h === "名前" || h.includes("名前"));
+    const idxFirstNameKana = headers.findIndex(h => h === "名前カナ" || h.includes("名前カナ"));
+    const idxEmail = headers.findIndex(h => h === "メール" || h.includes("メール"));
+    
+    let idxRate = headers.findIndex(h => h === "時給" || h.includes("時給"));
+    if (idxRate === -1) {
+      idxRate = 27;
+    }
+
+    const idxMedia = headers.findIndex(h => h === "求人媒体" || h.includes("求人媒体"));
+    const idxCreatedAt = headers.findIndex(h => h === "作成日時" || h.includes("作成日時"));
 
     if (idxEmail === -1 || idxLastName === -1 || idxFirstName === -1) {
       setStatusMessage("⚠️ エラー：CSVファイル内に必須列（メール・苗字・名前）が見つかりません。");
@@ -352,26 +356,25 @@ export default function AdminPage() {
       if (!line) continue;
       
       const columns = splitCSVLine(line);
-      const maxIdx = Math.max(idxId, idxNo, idxLastName, idxLastNameKana, idxFirstName, idxFirstNameKana, idxEmail, idxRate, idxMedia, idxCreatedAt);
-      
-      if (columns.length > maxIdx) {
-        const email = columns[idxEmail];
-        if (!email || !email.includes("@")) continue;
+      const email = columns[idxEmail];
+      if (!email || !email.includes("@")) continue;
 
-        parsedList.push({ 
-          id: columns[idxId] || "",
-          managementNumber: columns[idxNo] || "---", 
-          lastName: columns[idxLastName] || "",
-          lastNameKana: columns[idxLastNameKana] || "",
-          firstName: columns[idxFirstName] || "",
-          firstNameKana: columns[idxFirstNameKana] || "",
-          email: email.trim().toLowerCase(), 
-          hourlyRate: Number(columns[idxRate]) || 0,
-          media: columns[idxMedia] || "",
-          createdAtStr: columns[idxCreatedAt] || "",
-          name: `${columns[idxLastName]} ${columns[idxFirstName]}`
-        });
-      }
+      const rawRateStr = idxRate !== -1 && columns[idxRate] ? columns[idxRate] : "0";
+      const cleanRateNum = Number(rawRateStr.replace(/[^0-9.]/g, "")) || 0;
+
+      parsedList.push({ 
+        id: columns[idxId] || "",
+        managementNumber: columns[idxNo] || "---", 
+        lastName: columns[idxLastName] || "",
+        lastNameKana: columns[idxLastNameKana] || "",
+        firstName: columns[idxFirstName] || "",
+        firstNameKana: columns[idxFirstNameKana] || "",
+        email: email.trim().toLowerCase(), 
+        hourlyRate: cleanRateNum,
+        media: columns[idxMedia] || "",
+        createdAtStr: columns[idxCreatedAt] || "",
+        name: `${columns[idxLastName] || ""} ${columns[idxFirstName] || ""}`.trim()
+      });
     }
 
     setStatusMessage("指定データをFirestoreに同期中...");
@@ -392,40 +395,33 @@ export default function AdminPage() {
     return meta.department === myDepartment;
   });
 
-  // 💡 【改修】フィルター判定および最優先ソート（現在稼働中を最上段へ）
   const displayedRecords = filteredAttendanceRecords.filter(r => {
     const matchesMonth = r.workDate.startsWith(selectedMonth);
     if (!matchesMonth) return false;
 
-    // 1. チーム（所属）フィルターの適用
     if (filterRecordDepartment !== "all") {
       const meta = getMemberMeta(r.email);
       if (meta.department !== filterRecordDepartment) return false;
     }
 
-    // 2. 人（メールアドレス）フィルターの適用
     const matchesEmail = filterEmail === "all" ? true : r.email.trim().toLowerCase() === filterEmail.trim().toLowerCase();
     if (!matchesEmail) return false;
 
-    // 3. 日付範囲フィルターの適用
     if (startDate && r.workDate < startDate) return false;
     if (endDate && r.workDate > endDate) return false;
 
     return true;
   }).sort((a, b) => {
-    // 👑 1. 「現在稼働中（endTime が空文字または "---"）」を無条件で最上段（最優先）にする
     const isWorkingA = !a.endTime || a.endTime === "" || a.endTime === "---";
     const isWorkingB = !b.endTime || b.endTime === "" || b.endTime === "---";
 
-    if (isWorkingA && !isWorkingB) return -1; // aを最上段へ
-    if (!isWorkingA && isWorkingB) return 1;  // bを最上段へ
+    if (isWorkingA && !isWorkingB) return -1;
+    if (!isWorkingA && isWorkingB) return 1;
 
-    // 👑 2. 勤務日の降順（新しい日付が上）
     if (b.workDate !== a.workDate) {
       return b.workDate.localeCompare(a.workDate);
     }
 
-    // 👑 3. 開始時間の降順（遅い時間が上、あるいは業務開始時間）
     const timeA = a.startTime || "";
     const timeB = b.startTime || "";
     return timeB.localeCompare(timeA);
@@ -543,7 +539,6 @@ export default function AdminPage() {
                 </>
               )}
 
-              {/* 💡 【新設】稼働記録タブ専用のフィルターヘッダー（チームフィルターを追加） */}
               {activeTab === "records" && (
                 <>
                   <div className="flex items-center space-x-1.5">

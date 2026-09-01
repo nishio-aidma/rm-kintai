@@ -26,7 +26,7 @@ export default function RecordsPage() {
   const [userEmail, setUserEmail] = useState<string>("読み込み中...");
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
-  // 👑 中央にカスタムモーダルを表示して美しく削除確認を行うための状態管理
+  // 中央にカスタムモーダルを表示して美しく削除確認を行うための状態管理
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   // 今月（例: "2026-07"）を初期選択値にする
@@ -35,7 +35,7 @@ export default function RecordsPage() {
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
 
-  // 💡 当月を起点に過去12ヶ月分の選択肢（YYYY-MM）を自動生成する
+  // 当月を起点に過去12ヶ月分の選択肢（YYYY-MM）を自動生成する
   const monthOptions = useMemo(() => {
     const options: { value: string; label: string }[] = [];
     const now = new Date();
@@ -72,7 +72,7 @@ export default function RecordsPage() {
         });
       });
 
-      // 👑 元の並び替え仕様を100%完全保持
+      // 元の並び替え仕様を100%完全保持
       fetchedRecords.sort((a, b) => {
         if (a.workDate !== b.workDate) return b.workDate.localeCompare(a.workDate);
         return a.startTime.localeCompare(b.startTime);
@@ -113,7 +113,7 @@ export default function RecordsPage() {
     setFilteredRecords(filtered);
   }, [selectedMonth, records]);
 
-  // 👑 往復トグル確認処理（仕様保持）
+  // 往復トグル確認処理（仕様保持）
   const handleToggleVerifyRow = async (id: string, currentStatus: boolean) => {
     try {
       const nextStatus = !currentStatus;
@@ -143,7 +143,7 @@ export default function RecordsPage() {
     }
   };
 
-  // 💡 「提出＆CSV出力」関数（CSVから休憩時間の項目を削除）
+  // 💡 「提出＆CSV出力」関数（CSVに「●時間●分」の表記列を追加）
   const handleSubmitRecords = async () => {
     if (filteredRecords.length === 0) return;
     try {
@@ -152,14 +152,23 @@ export default function RecordsPage() {
       const targetIds = filteredRecords.map(r => r.id);
       await attendanceRepository.submitSelectedRecords(targetIds);
 
-      // 💡 ヘッダーと行データから休憩時間を排除
-      const headers = ["勤務日", "業務開始", "業務終了", "実働時間(分)"];
-      const rows = filteredRecords.map(r => [
-        r.workDate,
-        r.startTime,
-        r.endTime === "---" ? "" : r.endTime,
-        r.workMinutes
-      ].join(","));
+      // 👑 修正: CSVのヘッダーに「実働時間」を追加
+      const headers = ["勤務日", "業務開始", "業務終了", "実働時間(分)", "実働時間"];
+      
+      // 👑 修正: 各行に「○時間○分」の文字列形式を追加
+      const rows = filteredRecords.map(r => {
+        const h = Math.floor((r.workMinutes || 0) / 60);
+        const m = (r.workMinutes || 0) % 60;
+        const timeFormatted = r.endTime === "---" ? "---" : `${h}時間${m}分`;
+
+        return [
+          r.workDate,
+          r.startTime,
+          r.endTime === "---" ? "" : r.endTime,
+          r.workMinutes,
+          `"${timeFormatted}"`
+        ].join(",");
+      });
 
       const csvContent = "\uFEFF" + [headers.join(","), ...rows].join("\n");
       const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
@@ -194,7 +203,6 @@ export default function RecordsPage() {
     <div className="min-h-screen bg-gray-50 text-gray-800 font-sans">
       <header className="bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between shadow-sm">
         <div className="flex items-center space-x-3">
-          {/* 💡 左上のロゴアイコン(imgタグ)を削除 */}
           <span className="text-xs bg-emerald-50 text-emerald-600 px-2.5 py-1 rounded-full font-medium">業務記録一覧</span>
         </div>
         <button onClick={() => router.push("/")} className="text-sm text-emerald-600 hover:text-emerald-700 font-medium transition-colors">← トップページに戻る</button>

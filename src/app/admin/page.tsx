@@ -241,7 +241,8 @@ export default function AdminPage() {
 
     const line1 = ["報酬"];
     const line2 = ["開始", startDateStr, "終了", endDateStr];
-    const headers = ["No", "所属", "区分", "ID", "管理番号", "氏名", "報酬額（税抜）", "出勤日数", "時給（税抜）", "勤務時間", "時給制（税抜）", "単価制（税抜）", "対応案件数", "案件報酬（税抜）", "インセンティブ（税抜）", "備考"];
+    // 👑 【改修】出力するCSVヘッダーも「時間単価」に統一
+    const headers = ["No", "所属", "区分", "ID", "管理番号", "氏名", "報酬額（税抜）", "出勤日数", "時間単価（税抜）", "勤務時間", "時間単価制（税抜）", "単価制（税抜）", "対応案件数", "案件報酬（税抜）", "インセンティブ（税抜）", "備考"];
 
     let noCounter = 1;
     const rows = Object.keys(summaryMap).map(email => {
@@ -309,7 +310,8 @@ export default function AdminPage() {
         let firstLine = lines[0] || "";
         
         const testHeaders = splitCSVLine(firstLine);
-        if (!testHeaders.some(h => h.includes("管理番号")) && !testHeaders.some(h => h.includes("時給"))) {
+        // 👑 【改修】検証時にも「時間単価」を含むかで判定
+        if (!testHeaders.some(h => h.includes("管理番号")) && !testHeaders.some(h => h.includes("時間単価"))) {
           const sjisReader = new FileReader();
           sjisReader.onload = (ev) => processCSVLines(ev.target?.result as string);
           sjisReader.readAsText(file, "Shift_JIS");
@@ -336,9 +338,12 @@ export default function AdminPage() {
     const idxFirstNameKana = headers.findIndex(h => h === "名前カナ" || h.includes("名前カナ"));
     const idxEmail = headers.findIndex(h => h === "メール" || h.includes("メール"));
     
-    let idxRate = headers.findIndex(h => h === "時給" || h.includes("時給"));
+    // 👑 【改修】「時給」ではなく「時間単価」を検索キーワードに変更
+    let foundByHeader = true;
+    let idxRate = headers.findIndex(h => h === "時間単価" || h.includes("時間単価"));
     if (idxRate === -1) {
-      idxRate = 27;
+      foundByHeader = false;
+      idxRate = 27; // AB列 (28番目) へのフォールバック
     }
 
     const idxMedia = headers.findIndex(h => h === "求人媒体" || h.includes("求人媒体"));
@@ -350,6 +355,9 @@ export default function AdminPage() {
       return;
     }
 
+    let debugSampleRateStr = "";
+    let debugSampleNum = 0;
+
     const parsedList: Omit<MemberInfo, "department" | "loginEmail" | "role" | "isOwnerProxy">[] = [];
     for (let i = 1; i < lines.length; i++) {
       const line = lines[i].trim();
@@ -359,8 +367,13 @@ export default function AdminPage() {
       const email = columns[idxEmail];
       if (!email || !email.includes("@")) continue;
 
-      const rawRateStr = idxRate !== -1 && columns[idxRate] ? columns[idxRate] : "0";
+      const rawRateStr = idxRate < columns.length ? columns[idxRate] : "列範囲外";
       const cleanRateNum = Number(rawRateStr.replace(/[^0-9.]/g, "")) || 0;
+
+      if (!debugSampleRateStr) {
+        debugSampleRateStr = rawRateStr;
+        debugSampleNum = cleanRateNum;
+      }
 
       parsedList.push({ 
         id: columns[idxId] || "",
@@ -377,10 +390,17 @@ export default function AdminPage() {
       });
     }
 
-    setStatusMessage("指定データをFirestoreに同期中...");
+    const debugMsg = `🔍 [診断ログ] 時間単価列位置: ${idxRate + 1}列目 (${foundByHeader ? "ヘッダー名で検出" : "AB列として補正"}) / 1件目の生の文字: "${debugSampleRateStr}" ➔ 数値化: ${debugSampleNum}円`;
+    console.log(debugMsg);
+
+    setStatusMessage(`${debugMsg} ➔ 全 ${parsedList.length} 名の同期を開始中...`);
     const count = await attendanceRepository.saveImportedMembers(parsedList);
-    setStatusMessage(`アサインシステムCSVから全 ${count} 名を同期しました！`);
-    setTimeout(() => setStatusMessage(null), 4000);
+    
+    setTimeout(() => {
+      setStatusMessage(`✅ 同期完了 (全 ${count} 名) | 時間単価サンプル: 生データ="${debugSampleRateStr}" ➔ 結果=${debugSampleNum}円`);
+    }, 1500);
+
+    setTimeout(() => setStatusMessage(null), 10000);
     await loadAllData();
   };
 

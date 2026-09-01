@@ -336,6 +336,7 @@ export const attendanceRepository = {
     }
   },
 
+  // 👑 【改修】CSVインポート時に固定枠(fixed_members)側も時給を同時同期
   saveImportedMembers: async (membersList: Omit<MemberInfo, "department" | "loginEmail">[]) => {
     try {
       const batch = writeBatch(db);
@@ -363,6 +364,9 @@ export const attendanceRepository = {
         let currentOwnerProxy = false;
         let currentLeadingTeams: string[] = [];
 
+        const fixedRef = doc(db, "fixed_members", cleanEmail);
+        const fixedSnap = await getDoc(fixedRef);
+
         if (snap.exists()) {
           const d = snap.data();
           currentDept = d.department !== undefined ? d.department : "";
@@ -370,17 +374,21 @@ export const attendanceRepository = {
           currentRole = d.role || "user";
           currentOwnerProxy = d.isOwnerProxy || false;
           currentLeadingTeams = d.leadingTeams || [];
-        } else {
-          const fixedRef = doc(db, "fixed_members", cleanEmail);
-          const fixedSnap = await getDoc(fixedRef);
-          if (fixedSnap.exists()) {
-            const d = fixedSnap.data();
-            currentDept = d.department !== undefined ? d.department : "";
-            currentLoginEmail = d.loginEmail || "";
-            currentRole = d.role || "user";
-            currentOwnerProxy = d.isOwnerProxy || false;
-            currentLeadingTeams = d.leadingTeams || [];
-          }
+        } else if (fixedSnap.exists()) {
+          const d = fixedSnap.data();
+          currentDept = d.department !== undefined ? d.department : "";
+          currentLoginEmail = d.loginEmail || "";
+          currentRole = d.role || "user";
+          currentOwnerProxy = d.isOwnerProxy || false;
+          currentLeadingTeams = d.leadingTeams || [];
+        }
+
+        // 固定枠が存在する場合は時給も同期更新
+        if (fixedSnap.exists()) {
+          batch.set(fixedRef, {
+            hourlyRate: member.hourlyRate,
+            updatedAt: serverTimestamp()
+          }, { merge: true });
         }
         
         batch.set(memberRef, {
@@ -411,6 +419,7 @@ export const attendanceRepository = {
     }
   },
 
+  // 👑 【改修】固定枠の時給が未設定(0)の場合、CSVからの取り込み時給を優先保持するロジックに変更
   getAllMembers: async (): Promise<MemberInfo[]> => {
     try {
       const [membersSnapshot, fixedSnapshot] = await Promise.all([
@@ -435,7 +444,7 @@ export const attendanceRepository = {
           firstName: data.firstName || "",
           firstNameKana: data.firstNameKana || "",
           email: cleanEmail,
-          hourlyRate: data.hourlyRate || 0,
+          hourlyRate: Number(data.hourlyRate) || 0,
           media: data.media || "",
           createdAtStr: data.createdAtStr || "",
           name: memberName,
@@ -455,6 +464,10 @@ export const attendanceRepository = {
         const existing = allMembersMap.get(cleanEmail);
         const fixedName = data.name || `${data.lastName || ""} ${data.firstName || ""}`.trim() || existing?.name || cleanEmail.split("@")[0];
 
+        // 固定枠の時給が0より大きい場合はそれを採用、0以下の場合はCSVインポート時の時給(existing.hourlyRate)を優先保持
+        const fixedRate = Number(data.hourlyRate) || 0;
+        const finalHourlyRate = fixedRate > 0 ? fixedRate : (existing?.hourlyRate || 0);
+
         allMembersMap.set(cleanEmail, {
           id: data.id || existing?.id || "",
           managementNumber: data.managementNumber || existing?.managementNumber || "固定枠",
@@ -463,7 +476,7 @@ export const attendanceRepository = {
           firstName: data.firstName || existing?.firstName || "",
           firstNameKana: data.firstNameKana || existing?.firstNameKana || "",
           email: cleanEmail,
-          hourlyRate: data.hourlyRate !== undefined ? data.hourlyRate : (existing?.hourlyRate || 0),
+          hourlyRate: finalHourlyRate,
           media: data.media || existing?.media || "オーナー直接登録",
           createdAtStr: data.createdAtStr || existing?.createdAtStr || "",
           name: fixedName,
@@ -620,56 +633,66 @@ export const attendanceRepository = {
     }
   },
 
-  // 💡 【16件のエラー解消修正】型定義を (as any) で明示し、変数名 fixedRef も統一
+  // 👑 【改修】固定枠の時給が未設定(0)の場合もインポート時給を優先して取得
   getMemberByEmail: async (loginEmail: string): Promise<MemberInfo | null> => {
     try {
       const cleanEmail = loginEmail.trim().toLowerCase();
 
       const q = query(collection(db, "members"), or(where("loginEmail", "==", cleanEmail), where("email", "==", cleanEmail)));
       const snap = await getDocs(q);
+      let memberRate = 0;
+      let memberData: any = null;
+
       if (!snap.empty) {
-        const docData = snap.docs[0].data() as any;
-        return {
-          id: docData.id || "",
-          managementNumber: docData.managementNumber || "---",
-          lastName: docData.lastName || "",
-          lastNameKana: docData.lastNameKana || "",
-          firstName: docData.firstName || "",
-          firstNameKana: docData.firstNameKana || "",
-          email: cleanEmail,
-          hourlyRate: docData.hourlyRate || 0,
-          media: docData.media || "",
-          createdAtStr: docData.createdAtStr || "",
-          name: docData.name || "",
-          department: docData.department || "",
-          loginEmail: docData.loginEmail || "",
-          role: docData.role || "user",
-          isOwnerProxy: docData.isOwnerProxy || false,
-          leadingTeams: docData.leadingTeams || [],
-        };
+        memberData = snap.docs[0].data() as any;
+        memberRate = Number(memberData.hourlyRate) || 0;
       }
 
       const fixedRef = doc(db, "fixed_members", cleanEmail);
       const fixedSnap = await getDoc(fixedRef);
       if (fixedSnap.exists()) {
         const docData = fixedSnap.data() as any;
+        const fixedRate = Number(docData.hourlyRate) || 0;
+        const finalRate = fixedRate > 0 ? fixedRate : memberRate;
+
         return {
-          id: docData.id || "",
-          managementNumber: docData.managementNumber || "固定枠",
-          lastName: docData.lastName || "",
-          lastNameKana: docData.lastNameKana || "",
-          firstName: docData.firstName || "",
-          firstNameKana: docData.firstNameKana || "",
+          id: docData.id || memberData?.id || "",
+          managementNumber: docData.managementNumber || memberData?.managementNumber || "固定枠",
+          lastName: docData.lastName || memberData?.lastName || "",
+          lastNameKana: docData.lastNameKana || memberData?.lastNameKana || "",
+          firstName: docData.firstName || memberData?.firstName || "",
+          firstNameKana: docData.firstNameKana || memberData?.firstNameKana || "",
           email: cleanEmail,
-          hourlyRate: docData.hourlyRate || 0,
-          media: docData.media || "オーナー直接登録",
-          createdAtStr: docData.createdAtStr || "",
-          name: docData.name || "",
-          department: docData.department || "",
-          loginEmail: docData.loginEmail || "",
-          role: docData.role || "user",
-          isOwnerProxy: docData.isOwnerProxy || false,
-          leadingTeams: docData.leadingTeams || [],
+          hourlyRate: finalRate,
+          media: docData.media || memberData?.media || "オーナー直接登録",
+          createdAtStr: docData.createdAtStr || memberData?.createdAtStr || "",
+          name: docData.name || memberData?.name || "",
+          department: docData.department || memberData?.department || "",
+          loginEmail: docData.loginEmail || memberData?.loginEmail || "",
+          role: docData.role || memberData?.role || "user",
+          isOwnerProxy: docData.isOwnerProxy || memberData?.isOwnerProxy || false,
+          leadingTeams: docData.leadingTeams || memberData?.leadingTeams || [],
+        };
+      }
+
+      if (memberData) {
+        return {
+          id: memberData.id || "",
+          managementNumber: memberData.managementNumber || "---",
+          lastName: memberData.lastName || "",
+          lastNameKana: memberData.lastNameKana || "",
+          firstName: memberData.firstName || "",
+          firstNameKana: memberData.firstNameKana || "",
+          email: cleanEmail,
+          hourlyRate: memberRate,
+          media: memberData.media || "",
+          createdAtStr: memberData.createdAtStr || "",
+          name: memberData.name || "",
+          department: memberData.department || "",
+          loginEmail: memberData.loginEmail || "",
+          role: memberData.role || "user",
+          isOwnerProxy: memberData.isOwnerProxy || false,
+          leadingTeams: memberData.leadingTeams || [],
         };
       }
 

@@ -336,8 +336,7 @@ export default function AdminPage() {
     const idxFirstNameKana = headers.findIndex(h => h === "名前カナ" || h.includes("名前カナ"));
     const idxEmail = headers.findIndex(h => h === "メール" || h.includes("メール"));
     
-    // 👑 【改修】ヘッダー名による曖昧な検索を完全に廃止し、AB列（28番目）を完全固定指定
-    // プログラムでは0から数えるため、28番目はインデックス「27」になります。
+    // AB列（28番目 / インデックス27）を完全固定参照
     const idxRate = 27;
 
     const idxMedia = headers.findIndex(h => h === "求人媒体" || h.includes("求人媒体"));
@@ -349,9 +348,6 @@ export default function AdminPage() {
       return;
     }
 
-    let debugSampleRateStr = "";
-    let debugSampleNum = 0;
-
     const parsedList: Omit<MemberInfo, "department" | "loginEmail" | "role" | "isOwnerProxy">[] = [];
     for (let i = 1; i < lines.length; i++) {
       const line = lines[i].trim();
@@ -361,15 +357,9 @@ export default function AdminPage() {
       const email = columns[idxEmail];
       if (!email || !email.includes("@")) continue;
 
-      // 👑 AB列の文字を取得し、全角数字を半角に変換、その後数字以外を完全に除去
       const rawRateStr = idxRate < columns.length ? columns[idxRate] : "0";
       const normalizedStr = rawRateStr.replace(/[０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xfee0));
       const cleanRateNum = Number(normalizedStr.replace(/[^0-9.]/g, "")) || 0;
-
-      if (!debugSampleRateStr) {
-        debugSampleRateStr = rawRateStr;
-        debugSampleNum = cleanRateNum;
-      }
 
       parsedList.push({ 
         id: columns[idxId] || "",
@@ -386,16 +376,12 @@ export default function AdminPage() {
       });
     }
 
-    setStatusMessage(`⏳ AB列を強制取得中... 最初の行の生データ：「${debugSampleRateStr}」 ➔ 数値化：${debugSampleNum}円`);
-    
+    // 👑 元の綺麗な通常メッセージに復元
+    setStatusMessage("指定データをFirestoreに同期中...");
     const count = await attendanceRepository.saveImportedMembers(parsedList);
     
-    // 👑 プログラムが正常に更新された証拠として、全く新しいメッセージを表示します
-    setTimeout(() => {
-      setStatusMessage(`✨【最新版で同期完了】全 ${count} 名の情報をAB列固定でインポートしました！`);
-    }, 1500);
-
-    setTimeout(() => setStatusMessage(null), 10000);
+    setStatusMessage(`アサインシステムCSVから全 ${count} 名を同期しました！`);
+    setTimeout(() => setStatusMessage(null), 4000);
     await loadAllData();
   };
 

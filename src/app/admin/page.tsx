@@ -241,7 +241,6 @@ export default function AdminPage() {
 
     const line1 = ["報酬"];
     const line2 = ["開始", startDateStr, "終了", endDateStr];
-    // 👑 【改修】出力するCSVヘッダーも「時間単価」に統一
     const headers = ["No", "所属", "区分", "ID", "管理番号", "氏名", "報酬額（税抜）", "出勤日数", "時間単価（税抜）", "勤務時間", "時間単価制（税抜）", "単価制（税抜）", "対応案件数", "案件報酬（税抜）", "インセンティブ（税抜）", "備考"];
 
     let noCounter = 1;
@@ -310,8 +309,7 @@ export default function AdminPage() {
         let firstLine = lines[0] || "";
         
         const testHeaders = splitCSVLine(firstLine);
-        // 👑 【改修】検証時にも「時間単価」を含むかで判定
-        if (!testHeaders.some(h => h.includes("管理番号")) && !testHeaders.some(h => h.includes("時間単価"))) {
+        if (!testHeaders.some(h => h.includes("管理番号"))) {
           const sjisReader = new FileReader();
           sjisReader.onload = (ev) => processCSVLines(ev.target?.result as string);
           sjisReader.readAsText(file, "Shift_JIS");
@@ -338,13 +336,9 @@ export default function AdminPage() {
     const idxFirstNameKana = headers.findIndex(h => h === "名前カナ" || h.includes("名前カナ"));
     const idxEmail = headers.findIndex(h => h === "メール" || h.includes("メール"));
     
-    // 👑 【改修】「時給」ではなく「時間単価」を検索キーワードに変更
-    let foundByHeader = true;
-    let idxRate = headers.findIndex(h => h === "時間単価" || h.includes("時間単価"));
-    if (idxRate === -1) {
-      foundByHeader = false;
-      idxRate = 27; // AB列 (28番目) へのフォールバック
-    }
+    // 👑 【改修】ヘッダー名による曖昧な検索を完全に廃止し、AB列（28番目）を完全固定指定
+    // プログラムでは0から数えるため、28番目はインデックス「27」になります。
+    const idxRate = 27;
 
     const idxMedia = headers.findIndex(h => h === "求人媒体" || h.includes("求人媒体"));
     const idxCreatedAt = headers.findIndex(h => h === "作成日時" || h.includes("作成日時"));
@@ -367,8 +361,10 @@ export default function AdminPage() {
       const email = columns[idxEmail];
       if (!email || !email.includes("@")) continue;
 
-      const rawRateStr = idxRate < columns.length ? columns[idxRate] : "列範囲外";
-      const cleanRateNum = Number(rawRateStr.replace(/[^0-9.]/g, "")) || 0;
+      // 👑 AB列の文字を取得し、全角数字を半角に変換、その後数字以外を完全に除去
+      const rawRateStr = idxRate < columns.length ? columns[idxRate] : "0";
+      const normalizedStr = rawRateStr.replace(/[０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xfee0));
+      const cleanRateNum = Number(normalizedStr.replace(/[^0-9.]/g, "")) || 0;
 
       if (!debugSampleRateStr) {
         debugSampleRateStr = rawRateStr;
@@ -390,14 +386,13 @@ export default function AdminPage() {
       });
     }
 
-    const debugMsg = `🔍 [診断ログ] 時間単価列位置: ${idxRate + 1}列目 (${foundByHeader ? "ヘッダー名で検出" : "AB列として補正"}) / 1件目の生の文字: "${debugSampleRateStr}" ➔ 数値化: ${debugSampleNum}円`;
-    console.log(debugMsg);
-
-    setStatusMessage(`${debugMsg} ➔ 全 ${parsedList.length} 名の同期を開始中...`);
+    setStatusMessage(`⏳ AB列を強制取得中... 最初の行の生データ：「${debugSampleRateStr}」 ➔ 数値化：${debugSampleNum}円`);
+    
     const count = await attendanceRepository.saveImportedMembers(parsedList);
     
+    // 👑 プログラムが正常に更新された証拠として、全く新しいメッセージを表示します
     setTimeout(() => {
-      setStatusMessage(`✅ 同期完了 (全 ${count} 名) | 時間単価サンプル: 生データ="${debugSampleRateStr}" ➔ 結果=${debugSampleNum}円`);
+      setStatusMessage(`✨【最新版で同期完了】全 ${count} 名の情報をAB列固定でインポートしました！`);
     }, 1500);
 
     setTimeout(() => setStatusMessage(null), 10000);

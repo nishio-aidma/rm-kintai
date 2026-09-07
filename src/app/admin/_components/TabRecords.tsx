@@ -141,7 +141,7 @@ export default function TabRecords({
     date: ""
   });
 
-  // 👑 【新設】画面に表示されている稼働記録をCSV出力する関数
+  // 👑 【改修】CSV出力に「実打刻時間」を追加
   const handleExportRecordsCSV = () => {
     if (displayedRecords.length === 0) {
       setStatusMessage("⚠️ 出力対象の稼働記録がありません。");
@@ -149,12 +149,14 @@ export default function TabRecords({
       return;
     }
 
-    const headers = ["日付", "管理番号", "氏名", "メールアドレス", "所属チーム", "開始時間", "終了時間", "稼働時間(時間)", "本人確認状況", "リーダー確認状況"];
+    // ヘッダーに実打刻を追加
+    const headers = ["日付", "管理番号", "氏名", "メールアドレス", "所属チーム", "申請開始時間", "実打刻開始時間", "申請終了時間", "実打刻終了時間", "稼働時間(時間)", "本人確認状況", "リーダー確認状況"];
 
     const rows = displayedRecords.map(rec => {
       const meta = getMemberMeta(rec.email);
       const isWorking = !rec.endTime || rec.endTime === "" || rec.endTime === "---";
       const endTimeStr = isWorking ? "稼働中" : rec.endTime;
+      const actualEndTimeStr = isWorking ? "稼働中" : (rec.actualEndTime || "---");
       const verifiedStr = rec.verified ? "確認済み" : "未確認";
       const leaderVerifiedStr = rec.leaderVerified ? "承認済み" : "未承認";
 
@@ -165,7 +167,9 @@ export default function TabRecords({
         `"${rec.email}"`,
         `"${meta.department}"`,
         `"${rec.startTime || "---"}"`,
+        `"${rec.actualStartTime || "---"}"`,
         `"${endTimeStr}"`,
+        `"${actualEndTimeStr}"`,
         rec.workHours || 0,
         `"${verifiedStr}"`,
         `"${leaderVerifiedStr}"`
@@ -287,7 +291,7 @@ export default function TabRecords({
         </div>
       )}
       
-      {/* 👑 ボタン配置領域（CSV出力ボタンを追加） */}
+      {/* ボタン配置領域 */}
       <div className="flex items-center justify-between bg-gray-50 p-2.5 rounded-xl border border-gray-100">
         <p className="text-gray-400 font-medium text-[11px]">各メンバーが確認しているかどうかの状態はこれまで通り表示し、それに対してリーダー確認の項目を新設しました。</p>
         

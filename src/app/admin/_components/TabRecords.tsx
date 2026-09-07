@@ -5,7 +5,7 @@ import { MemberInfo } from "@/lib/attendanceRepository";
 import { doc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
-// 🍏 ドラムロール選択UIコンポーネント
+// ドラムロール選択UIコンポーネント
 function ScrollWheelPicker({
   options,
   value,
@@ -81,7 +81,6 @@ function ScrollWheelPicker({
   );
 }
 
-// 💡 実際の打刻時間を一覧で受け取れるように型を拡張
 interface AdminAttendanceRecord {
   id: string;
   userName: string;
@@ -125,11 +124,9 @@ export default function TabRecords({
     return now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, '0') + "-" + String(now.getDate()).padStart(2, '0');
   });
 
-  // ドラムロール選択用の分割ステート
   const [createStartHour, setCreateStartHour] = useState("09");
   const [createStartMinute, setCreateStartMinute] = useState("00");
   
-  // 👑 【新設】業務終了時間を設定するかどうかのフラグ（初期値: true＝設定する）
   const [hasEndTime, setHasEndTime] = useState(true);
   const [createEndHour, setCreateEndHour] = useState("18");
   const [createEndMinute, setCreateEndMinute] = useState("00");
@@ -143,6 +140,53 @@ export default function TabRecords({
     name: "",
     date: ""
   });
+
+  // 👑 【新設】画面に表示されている稼働記録をCSV出力する関数
+  const handleExportRecordsCSV = () => {
+    if (displayedRecords.length === 0) {
+      setStatusMessage("⚠️ 出力対象の稼働記録がありません。");
+      setTimeout(() => setStatusMessage(null), 3000);
+      return;
+    }
+
+    const headers = ["日付", "管理番号", "氏名", "メールアドレス", "所属チーム", "開始時間", "終了時間", "稼働時間(時間)", "本人確認状況", "リーダー確認状況"];
+
+    const rows = displayedRecords.map(rec => {
+      const meta = getMemberMeta(rec.email);
+      const isWorking = !rec.endTime || rec.endTime === "" || rec.endTime === "---";
+      const endTimeStr = isWorking ? "稼働中" : rec.endTime;
+      const verifiedStr = rec.verified ? "確認済み" : "未確認";
+      const leaderVerifiedStr = rec.leaderVerified ? "承認済み" : "未承認";
+
+      return [
+        `"${rec.workDate}"`,
+        `"${meta.managementNumber}"`,
+        `"${meta.name}"`,
+        `"${rec.email}"`,
+        `"${meta.department}"`,
+        `"${rec.startTime || "---"}"`,
+        `"${endTimeStr}"`,
+        rec.workHours || 0,
+        `"${verifiedStr}"`,
+        `"${leaderVerifiedStr}"`
+      ].join(",");
+    });
+
+    const csvContent = "\uFEFF" + [headers.join(","), ...rows].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    link.download = `稼働記録一覧_${year}-${month}.csv`;
+    link.click();
+
+    setStatusMessage(`✅ 稼働記録全 ${displayedRecords.length} 件をCSV出力しました！`);
+    setTimeout(() => setStatusMessage(null), 3000);
+  };
 
   const handleToggleLeaderVerify = async (id: string, currentStatus: boolean) => {
     try {
@@ -177,10 +221,8 @@ export default function TabRecords({
     }
 
     const createStart = `${createStartHour}:${createStartMinute}`;
-    // 👑 業務終了を設定しない場合は空文字にする（これで稼働中データになる）
     const createEnd = hasEndTime ? `${createEndHour}:${createEndMinute}` : "";
 
-    // 終了時間が設定されている場合のみ時間の前後チェックを行う
     if (hasEndTime) {
       try {
         const [startH, startM] = [parseInt(createStartHour, 10), parseInt(createStartMinute, 10)];
@@ -245,14 +287,25 @@ export default function TabRecords({
         </div>
       )}
       
+      {/* 👑 ボタン配置領域（CSV出力ボタンを追加） */}
       <div className="flex items-center justify-between bg-gray-50 p-2.5 rounded-xl border border-gray-100">
         <p className="text-gray-400 font-medium text-[11px]">各メンバーが確認しているかどうかの状態はこれまで通り表示し、それに対してリーダー確認の項目を新設しました。</p>
-        <button 
-          onClick={() => setShowCreateModal(true)} 
-          className="bg-emerald-400 hover:bg-emerald-500 text-white font-bold px-3 py-1.5 rounded-lg shadow-sm transition-all flex items-center space-x-1 cursor-pointer"
-        >
-          <span>➕ 稼働記録を新規追加</span>
-        </button>
+        
+        <div className="flex items-center space-x-2">
+          <button 
+            onClick={handleExportRecordsCSV}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-lg shadow-sm transition-all flex items-center space-x-1 cursor-pointer text-xs"
+          >
+            <span>📥 稼働記録CSV</span>
+          </button>
+
+          <button 
+            onClick={() => setShowCreateModal(true)} 
+            className="bg-emerald-400 hover:bg-emerald-500 text-white font-bold px-3 py-1.5 rounded-lg shadow-sm transition-all flex items-center space-x-1 cursor-pointer text-xs"
+          >
+            <span>➕ 稼働記録を新規追加</span>
+          </button>
+        </div>
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden p-4">
@@ -396,7 +449,6 @@ export default function TabRecords({
         )}
       </div>
 
-      {/* 👑 【改修】「開始時間のみ（業務終了なし＝稼働中）」でも作成できる手動追加モーダル */}
       {showCreateModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 text-xs font-sans p-4">
           <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl border border-gray-100 text-left space-y-4 animate-fadeIn max-h-[90vh] overflow-y-auto">
@@ -425,10 +477,8 @@ export default function TabRecords({
                 <input type="date" value={createDate} onChange={(e) => setCreateDate(e.target.value)} className="w-full border border-gray-200 rounded-xl px-3 py-2 bg-white text-gray-700 font-medium text-xs focus:outline-none cursor-pointer" />
               </div>
 
-              {/* 👑 ドラムロール選択UI（業務開始 & 業務終了） */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-gray-50/60 p-3 rounded-2xl border border-gray-100">
                 
-                {/* 業務開始 */}
                 <div className="space-y-1 text-center">
                   <label className="text-[10px] font-bold text-emerald-600 block">業務開始時間</label>
                   <div className="flex items-center justify-center space-x-1 bg-white p-1.5 rounded-xl border border-gray-200 shadow-sm">
@@ -456,7 +506,6 @@ export default function TabRecords({
                   </div>
                 </div>
 
-                {/* 業務終了 */}
                 <div className="space-y-1 text-center">
                   <div className="flex items-center justify-center space-x-1 mb-1">
                     <input 

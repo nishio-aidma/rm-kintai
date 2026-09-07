@@ -262,6 +262,47 @@ export default function AdminPage() {
     link.click();
   };
 
+  // 👑 【新設】稼働記録データをCSVとして出力する機能
+  const handleExportRecordsCSV = () => {
+    if (displayedRecords.length === 0) {
+      setStatusMessage("⚠️ 出力対象の稼働記録がありません。");
+      setTimeout(() => setStatusMessage(null), 3000);
+      return;
+    }
+
+    const headers = ["日付", "管理番号", "氏名", "メールアドレス", "所属チーム", "開始時間", "終了時間", "稼働時間(時間)", "提出状態"];
+
+    const rows = displayedRecords.map(rec => {
+      const meta = getMemberMeta(rec.email);
+      const isWorking = !rec.endTime || rec.endTime === "" || rec.endTime === "---";
+      const endTimeStr = isWorking ? "稼働中" : rec.endTime;
+      const submittedStr = rec.submitted ? "提出済み" : "未提出";
+
+      return [
+        `"${rec.workDate}"`,
+        `"${meta.managementNumber}"`,
+        `"${meta.name}"`,
+        `"${rec.email}"`,
+        `"${meta.department}"`,
+        `"${rec.startTime || "---"}"`,
+        `"${endTimeStr}"`,
+        rec.workHours || 0,
+        `"${submittedStr}"`
+      ].join(",");
+    });
+
+    const csvContent = "\uFEFF" + [headers.join(","), ...rows].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `稼働記録一覧_${selectedMonth}.csv`;
+    link.click();
+
+    setStatusMessage(`✅ 稼働記録全 ${displayedRecords.length} 件をCSV出力しました！`);
+    setTimeout(() => setStatusMessage(null), 3000);
+  };
+
   const handleOpenEditModal = (record: AdminAttendanceRecord) => {
     setEditingRecord(record);
     setEditDate(record.workDate);
@@ -336,7 +377,6 @@ export default function AdminPage() {
     const idxFirstNameKana = headers.findIndex(h => h === "名前カナ" || h.includes("名前カナ"));
     const idxEmail = headers.findIndex(h => h === "メール" || h.includes("メール"));
     
-    // AB列（28番目 / インデックス27）を完全固定参照
     const idxRate = 27;
 
     const idxMedia = headers.findIndex(h => h === "求人媒体" || h.includes("求人媒体"));
@@ -376,7 +416,6 @@ export default function AdminPage() {
       });
     }
 
-    // 👑 元の綺麗な通常メッセージに復元
     setStatusMessage("指定データをFirestoreに同期中...");
     const count = await attendanceRepository.saveImportedMembers(parsedList);
     
@@ -568,6 +607,16 @@ export default function AdminPage() {
                     {(startDate || endDate) && (
                       <button onClick={() => { setStartDate(""); setEndDate(""); }} className="text-[11px] bg-gray-200 text-gray-600 hover:bg-gray-300 font-bold px-2 py-1 rounded-md transition-all ml-1">クリア</button>
                     )}
+                  </div>
+
+                  {/* 👑 【新設】稼働記録CSV出力ボタン */}
+                  <div className="border-l border-gray-200 pl-4">
+                    <button
+                      onClick={handleExportRecordsCSV}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold px-3 py-1.5 rounded-xl text-xs shadow-sm transition-all flex items-center space-x-1 cursor-pointer h-8"
+                    >
+                      <span>📥 稼働記録CSV</span>
+                    </button>
                   </div>
                 </>
               )}

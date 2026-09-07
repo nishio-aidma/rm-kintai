@@ -43,6 +43,12 @@ export default function TabNotifications({
       time: "",
       message: "【ダコック個別催促】稼働記録が【未提出】状態です。内容を確認の上、システムより提出ボタンの押下をお願いいたします。\n[自分の記録URL]",
     },
+    // 👑 リアルタイム打刻通知用の初期値
+    realtimeAttendanceNotice: {
+      enabled: false,
+      roomId: "",
+      message: "【打刻通知】[氏名] さんが [打刻種別] しました。\n時刻：[打刻時刻]",
+    },
     teamRoomIds: {},
     apiToken: "",
   });
@@ -55,6 +61,12 @@ export default function TabNotifications({
           setSettings({
             ...data,
             apiToken: data.apiToken || "",
+            // 👑 データベースの既存データがない場合のフォールバック補完
+            realtimeAttendanceNotice: data.realtimeAttendanceNotice || {
+              enabled: false,
+              roomId: "",
+              message: "【打刻通知】[氏名] さんが [打刻種別] しました。\n時刻：[打刻時刻]",
+            },
           });
         }
       } catch (error) {
@@ -86,6 +98,17 @@ export default function TabNotifications({
       [key]: {
         ...prev[key]!,
         message: prev[key]!.message + `\n${urlTag}`,
+      },
+    }));
+  };
+
+  // 👑 打刻通知用のタグ挿入ヘルパー
+  const handleInsertRealtimeTag = (tag: string) => {
+    setSettings((prev) => ({
+      ...prev,
+      realtimeAttendanceNotice: {
+        ...prev.realtimeAttendanceNotice!,
+        message: (prev.realtimeAttendanceNotice?.message || "") + ` ${tag}`,
       },
     }));
   };
@@ -132,6 +155,121 @@ export default function TabNotifications({
           社内チャットツールへの自動催促メッセージや、チーム別ルームIDを設定します。<br/>
           ※変更後は画面右下の「保存する」ボタンを押してください。
         </p>
+      </div>
+
+      {/* 👑 ⑦ リアルタイム打刻通知設定（新設セクション） */}
+      <div className="bg-white p-6 rounded-2xl border-2 border-emerald-500/30 shadow-md space-y-4 relative overflow-hidden">
+        <div className="absolute top-0 left-0 w-2 h-full bg-emerald-500"></div>
+        <div className="flex items-center justify-between border-b border-gray-100 pb-3 pl-2">
+          <div>
+            <div className="flex items-center space-x-2">
+              <span className="text-base">⚡</span>
+              <h4 className="text-sm font-extrabold text-gray-800">リアルタイム打刻通知機能設定</h4>
+              <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full">新機能</span>
+            </div>
+            <p className="text-[11px] text-gray-400 mt-0.5">メンバーが打刻（業務開始・終了）した瞬間に共通チャットへ即時通知します</p>
+          </div>
+          
+          {/* ON/OFF 切り替えトグル */}
+          <div className="flex items-center space-x-2">
+            <span className={`text-xs font-bold ${settings.realtimeAttendanceNotice?.enabled ? "text-emerald-600" : "text-gray-400"}`}>
+              {settings.realtimeAttendanceNotice?.enabled ? "機能: ON" : "機能: OFF"}
+            </span>
+            <button
+              type="button"
+              onClick={() =>
+                setSettings((prev) => ({
+                  ...prev,
+                  realtimeAttendanceNotice: {
+                    ...prev.realtimeAttendanceNotice!,
+                    enabled: !prev.realtimeAttendanceNotice?.enabled,
+                  },
+                }))
+              }
+              className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                settings.realtimeAttendanceNotice?.enabled ? "bg-emerald-500" : "bg-gray-300"
+              }`}
+            >
+              <span
+                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                  settings.realtimeAttendanceNotice?.enabled ? "translate-x-5" : "translate-x-0"
+                }`}
+              />
+            </button>
+          </div>
+        </div>
+
+        <div className="space-y-4 pl-2 font-medium">
+          {/* 共通ルームID設定 */}
+          <div className="space-y-1.5">
+            <label className="font-bold text-gray-700 block text-xs">通知先グループチャット ルームID（6桁）</label>
+            <div className="flex items-center space-x-2">
+              <input
+                type="text"
+                maxLength={6}
+                value={settings.realtimeAttendanceNotice?.roomId || ""}
+                onChange={(e) => {
+                  const cleanVal = e.target.value.replace(/\D/g, "").slice(0, 6);
+                  setSettings((prev) => ({
+                    ...prev,
+                    realtimeAttendanceNotice: {
+                      ...prev.realtimeAttendanceNotice!,
+                      roomId: cleanVal,
+                    },
+                  }));
+                }}
+                placeholder="例: 123456"
+                className="w-36 border border-gray-200 rounded-xl px-3 py-2 bg-gray-50/50 font-mono font-bold text-xs focus:bg-white focus:outline-none focus:border-emerald-500 text-center"
+              />
+              <span className="text-[11px] text-gray-400">※全メンバー共通の打刻通知を送信するチャットルームIDを指定してください。</span>
+            </div>
+          </div>
+
+          {/* 通知本文設定 */}
+          <div className="space-y-2">
+            <div className="flex justify-between items-center">
+              <label className="font-bold text-gray-700">通知メッセージ本文テンプレート</label>
+              <div className="flex space-x-1">
+                <button
+                  type="button"
+                  onClick={() => handleInsertRealtimeTag("[氏名]")}
+                  className="bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold px-2 py-0.5 rounded transition-all text-[10px] cursor-pointer"
+                >
+                  ＋[氏名]
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleInsertRealtimeTag("[打刻種別]")}
+                  className="bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold px-2 py-0.5 rounded transition-all text-[10px] cursor-pointer"
+                >
+                  ＋[打刻種別]
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleInsertRealtimeTag("[打刻時刻]")}
+                  className="bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold px-2 py-0.5 rounded transition-all text-[10px] cursor-pointer"
+                >
+                  ＋[打刻時刻]
+                </button>
+              </div>
+            </div>
+            <textarea
+              rows={3}
+              value={settings.realtimeAttendanceNotice?.message || ""}
+              onChange={(e) =>
+                setSettings((prev) => ({
+                  ...prev,
+                  realtimeAttendanceNotice: {
+                    ...prev.realtimeAttendanceNotice!,
+                    message: e.target.value,
+                  },
+                }))
+              }
+              className="w-full border border-gray-200 rounded-xl p-3 text-xs bg-gray-50/50 focus:bg-white focus:outline-none leading-relaxed font-sans"
+              placeholder="【打刻通知】[氏名] さんが [打刻種別] しました。\n時刻：[打刻時刻]"
+            />
+          </div>
+        </div>
       </div>
 
       {/* 🔑 APIトークン設定 */}
@@ -437,7 +575,7 @@ export default function TabNotifications({
         )}
       </div>
 
-      {/* 💡 修正：画面右下に常に追従するフローティング保存ボタン */}
+      {/* 画面右下に常に追従するフローティング保存ボタン */}
       <div className="fixed bottom-8 right-8 z-[90] animate-scaleUp">
         <button
           onClick={handleSave}

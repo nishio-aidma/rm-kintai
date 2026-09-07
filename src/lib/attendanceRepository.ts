@@ -44,12 +44,20 @@ export interface NotificationConfig {
   message: string;
 }
 
+// 👑 【新設】打刻リアルタイム通知用の設定型
+export interface RealtimeAttendanceConfig {
+  enabled: boolean;
+  roomId: string;
+  message: string;
+}
+
 export interface NotificationsSettings {
   unverifiedReminder: NotificationConfig;
   midSubmissionReminder: NotificationConfig; 
   monthEndSubmissionReminder: NotificationConfig; 
   missingEndWorkReminder: NotificationConfig;
   manualReminder?: NotificationConfig;
+  realtimeAttendanceNotice?: RealtimeAttendanceConfig; // 👑 【新設】リアルタイム打刻通知設定
   teamRoomIds: { [teamName: string]: string };
   apiToken?: string; 
 }
@@ -765,6 +773,12 @@ export const attendanceRepository = {
             time: "",
             message: "【ダコック個別催促】稼働記録が【未提出】状態です。内容を確認の上、システムより提出ボタンの押下をお願いいたします。\n[自分の記録URL]",
           },
+          // 👑 【新設】リアルタイム打刻通知用の初期設定読み込み
+          realtimeAttendanceNotice: data.realtimeAttendanceNotice || {
+            enabled: false,
+            roomId: "",
+            message: "【打刻通知】[氏名] さんが [打刻種別] しました。\n時刻：[打刻時刻]",
+          },
           teamRoomIds: data.teamRoomIds || {},
           apiToken: data.apiToken || "",
         } as NotificationsSettings;
@@ -795,6 +809,12 @@ export const attendanceRepository = {
           enabled: true,
           time: "",
           message: "【ダコック個別催促】稼働記録が【未提出】状態です。内容を確認の上、システムより提出ボタンの押下をお願いいたします。\n[自分の記録URL]",
+        },
+        // 👑 【新設】データが存在しない場合の完全新規用の初期値
+        realtimeAttendanceNotice: {
+          enabled: false,
+          roomId: "",
+          message: "【打刻通知】[氏名] さんが [打刻種別] しました。\n時刻：[打刻時刻]",
         },
         teamRoomIds: {},
         apiToken: "",
@@ -843,7 +863,6 @@ export const attendanceRepository = {
     }
   },
 
-  // 👑 【新設】データベース（Firestore）からチームリストを取得する関数
   getCustomDepartments: async (): Promise<string[]> => {
     try {
       const docRef = doc(db, "settings", "departments");
@@ -858,7 +877,6 @@ export const attendanceRepository = {
     }
   },
 
-  // 👑 【新設】データベース（Firestore）へチームリストを保存する関数
   saveCustomDepartments: async (departments: string[]) => {
     try {
       const docRef = doc(db, "settings", "departments");

@@ -4,7 +4,8 @@ import { db } from "@/lib/firebase";
 
 // MEMBERS APIのレスポンス用型定義
 interface MembersApiUser {
-  id: string | number;
+  id?: string | number;
+  account_id?: string | number;
   name: string;
 }
 
@@ -16,15 +17,18 @@ async function sendMembersMessage(
   toIds: string[]
 ) {
   const postUrl = `https://api.mem-bers.jp/web-api/rooms/${roomId}/messages`;
-  const formattedBody = body.replace(/\r\n|\r|\n/g, "<br>");
-
-  const payload: Record<string, string> = {
-    body: formattedBody,
-  };
-
-  if (toIds.length > 0) {
-    payload.to_id = toIds.join(",");
+  
+  // 💡 【修正】メンションは裏設定ではなく、本文の先頭に [To:xxxxx] として直接文字でくっつける
+  let finalBody = body;
+  if (toIds && toIds.length > 0) {
+    const mentionText = toIds.map(id => `[To:${id}]`).join(" ");
+    finalBody = `${mentionText}\n${body}`;
   }
+
+  // 💡 【修正】MEMBERS(Chatwork系)は改行をそのまま(\n)送るのが正解のため、<br>変換を削除
+  const payload: Record<string, string> = {
+    body: finalBody,
+  };
 
   const res = await fetch(postUrl, {
     method: "POST",
@@ -43,7 +47,7 @@ async function sendMembersMessage(
   return true;
 }
 
-// 💡 MEMBERSのルームからメンバー一覧を取得する関数（名前のスペースを徹底除去＋ログ出力）
+// 💡 MEMBERSのルームからメンバー一覧を取得する関数
 async function getRoomMembers(roomId: string, token: string): Promise<Record<string, string>> {
   const getUrl = `https://api.mem-bers.jp/web-api/rooms/${roomId}/members`;
   const memberMap: Record<string, string> = {};
@@ -58,18 +62,21 @@ async function getRoomMembers(roomId: string, token: string): Promise<Record<str
 
     if (res.ok) {
       const json = await res.json();
-      const members: MembersApiUser[] = json.member || [];
+      // 💡 【修正】MEMBERSはデータが直接配列で返ってくるため、正しくリストを受け取るように変更
+      const members: MembersApiUser[] = Array.isArray(json) ? json : (json.member || []);
       
       console.log(`\n[API通信] ルームID: ${roomId} のメンバーを ${members.length} 名取得しました。`);
       
       members.forEach((m) => {
         const cleanName = (m.name || "").replace(/[\s\u3000]/g, "");
-        if (cleanName) {
-          memberMap[cleanName] = String(m.id);
+        // 💡 【修正】IDの項目名が `account_id` である仕様に対応
+        const accountId = m.account_id || m.id;
+        
+        if (cleanName && accountId) {
+          memberMap[cleanName] = String(accountId);
         }
       });
       
-      // 💡 調査用：MEMBERS側の全メンバーのクリーンアップ済み名前をログ出力
       console.log(`[MEMBERS側名簿] 変換後のキー一覧:`, Object.keys(memberMap).join(", "));
     }
   } catch (error) {
@@ -183,7 +190,6 @@ export async function GET(request: Request) {
                 memName === cleanAppName || memName.includes(cleanAppName) || cleanAppName.includes(memName)
               );
               
-              // 💡 調査用：誰と誰を比較して、どういう結果になったかを出力
               console.log(`[対象] アプリ登録名: "${name}" -> 変換後: "${cleanAppName}"`);
               if (matchedKey) {
                 console.log(`  -> 🟢 成功: MEMBERS側の "${matchedKey}" (ID: ${roomMembers[matchedKey]}) に一致しました`);

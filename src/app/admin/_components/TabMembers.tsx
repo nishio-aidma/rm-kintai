@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation";
 
 interface TabMembersProps {
   members: MemberInfo[];
-  // 💡 型エラー解消のため、attendanceRecords と getMemberMeta を追加
   attendanceRecords?: any[];
   getMemberMeta?: (email: string) => { name: string; managementNumber: string; hourlyRate: number; department: string };
   editingDeptEmail: string | null;
@@ -33,11 +32,11 @@ export default function TabMembers({
   
   const router = useRouter();
 
-  // 💡 【新設】ボタンを押した瞬間に、その場で権限の表示をパッと切り替えるための「一時記憶の部屋」
+  // ボタンを押した瞬間に、その場で権限の表示をパッと切り替えるための「一時記憶の部屋」
   const [localRoles, setLocalRoles] = useState<{ [email: string]: string }>({});
   const [localProxies, setLocalProxies] = useState<{ [email: string]: boolean }>({});
 
-  // 👑 西尾さんにご提示いただいた11個の正しいマスターチーム
+  // 西尾さんにご提示いただいた11個の正しいマスターチーム
   const initialDepts = [
     "架電チーム",
     "商談チーム",
@@ -52,47 +51,85 @@ export default function TabMembers({
     "業務効率化チーム"
   ];
 
-  // 👑 選択肢として管理されるチームリストのステート
+  // 選択肢として管理されるチームリストのステート
   const [customDepts, setCustomDepts] = useState<string[]>([]);
   // 新規チーム追加用の手入力文字列ステート
   const [newDeptInput, setNewDeptInput] = useState<string>("");
   // メンバー編集時の一時プルダウン選択用ステート
   const [selectedDeptTmp, setSelectedDeptTmp] = useState<string>("");
 
-  // ローカルストレージまたは初期マスタから選択肢を読み込み
+  // 👑 【改修】ブラウザの記憶ではなく、Firestore（データベース）から直接チーム一覧を読み込む
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("rm_custom_departments");
-      if (saved) {
-        setCustomDepts(JSON.parse(saved));
-      } else {
-        const merged = Array.from(new Set([...initialDepts, ...uniqueDepartments])).filter(Boolean);
-        setCustomDepts(merged);
-        localStorage.setItem("rm_custom_departments", JSON.stringify(merged));
+    const loadDepartments = async () => {
+      try {
+        const savedDepts = await attendanceRepository.getCustomDepartments();
+        if (savedDepts && savedDepts.length > 0) {
+          // データベースに保存済みのデータがあれば最優先で採用
+          const merged = Array.from(new Set([...savedDepts, ...uniqueDepartments])).filter(Boolean);
+          setCustomDepts(merged);
+        } else {
+          // 初回起動時など、データベースが空の場合は初期マスタをセットしてデータベースへ保存
+          const merged = Array.from(new Set([...initialDepts, ...uniqueDepartments])).filter(Boolean);
+          setCustomDepts(merged);
+          await attendanceRepository.saveCustomDepartments(merged);
+        }
+      } catch (error) {
+        console.error("チームマスタの読み込みに失敗しました:", error);
       }
+    };
+    
+    // クライアント側（ブラウザ）でのみ実行する
+    if (typeof window !== "undefined") {
+      loadDepartments();
     }
   }, [uniqueDepartments]);
 
-  // 👑 【シンプル設計】最上部からいつでもチームを「一発追加」する関数
-  const handleAddDeptHeader = () => {
+  // 👑 【改修】チームを追加した際、Firestore（データベース）へ保存する
+  const handleAddDeptHeader = async () => {
     const trimmed = newDeptInput.trim();
     if (!trimmed) return;
     if (customDepts.includes(trimmed)) {
-      alert("そのチーム名は既に登録されています。");
+      setModalConfig({
+        isOpen: true,
+        title: "チーム名の重複",
+        message: "そのチーム名は既に登録されています。",
+        confirmButtonText: "OK",
+        onConfirm: async () => {}
+      });
       return;
     }
+    
     const updated = [...customDepts, trimmed];
     setCustomDepts(updated);
-    localStorage.setItem("rm_custom_departments", JSON.stringify(updated));
     setNewDeptInput("");
+    
+    try {
+      await attendanceRepository.saveCustomDepartments(updated);
+    } catch (error) {
+      console.error("チームの追加保存に失敗しました", error);
+    }
   };
 
-  // 👑 【シンプル設計】最上部のバッジからいつでもチームを「一発削除」する関数
+  // 👑 【改修】チームを削除した際、Firestore（データベース）へ即座に反映する
   const handleDeleteDeptHeader = (deptToDelete: string) => {
-    if (!confirm(`プルダウンの選択肢から「${deptToDelete}」を削除しますか？\n（※すでにメンバーに割り当てられている所属名自体は保持されます）`)) return;
-    const updated = customDepts.filter(d => d !== deptToDelete);
-    setCustomDepts(updated);
-    localStorage.setItem("rm_custom_departments", JSON.stringify(updated));
+    setModalConfig({
+      isOpen: true,
+      title: "選択肢の削除確認",
+      message: `プルダウンの選択肢から「${deptToDelete}」を削除しますか？`,
+      subMessage: "※すでにメンバーに割り当てられている所属名自体は保持されます。",
+      confirmButtonText: "削除する",
+      isDanger: true,
+      onConfirm: async () => {
+        const updated = customDepts.filter(d => d !== deptToDelete);
+        setCustomDepts(updated);
+        
+        try {
+          await attendanceRepository.saveCustomDepartments(updated);
+        } catch (error) {
+          console.error("チームの削除保存に失敗しました", error);
+        }
+      }
+    });
   };
 
   // カスタム確認モーダル用ステート
@@ -113,7 +150,6 @@ export default function TabMembers({
   });
 
   const toggleAdminRole = (member: MemberInfo) => {
-    // 現在の一時記憶、または元のデータから現在の権限を割り出す
     const currentRole = localRoles[member.email] || member.role;
     const targetRole = currentRole === "admin" ? "user" : "admin";
     
@@ -127,11 +163,16 @@ export default function TabMembers({
       onConfirm: async () => {
         try {
           await attendanceRepository.updateMemberRole(member.email, targetRole);
-          // 💡 成功したらその場で一時記憶を書き換えて、画面表示を即座に変更！
           setLocalRoles(prev => ({ ...prev, [member.email]: targetRole }));
           router.refresh();
         } catch (e) {
-          alert("権限の変更に失敗しました。");
+          setModalConfig({
+            isOpen: true,
+            title: "エラー",
+            message: "権限の変更に失敗しました。",
+            confirmButtonText: "閉じる",
+            onConfirm: async () => {}
+          });
         }
       }
     });
@@ -150,21 +191,25 @@ export default function TabMembers({
       onConfirm: async () => {
         try {
           await attendanceRepository.updateMemberOwnerProxy(member.email, isChecked);
-          // 💡 成功したらその場でチェックボックスの状態を即座に変更！
           setLocalProxies(prev => ({ ...prev, [member.email]: isChecked }));
           router.refresh();
         } catch (e) {
-          alert("オーナー代理権限の切り替えに失敗しました。");
+          setModalConfig({
+            isOpen: true,
+            title: "エラー",
+            message: "オーナー代理権限の切り替えに失敗しました。",
+            confirmButtonText: "閉じる",
+            onConfirm: async () => {}
+          });
         }
       }
     });
   };
 
-  // 💡 氏名（名前）を照合キーにして打刻レコードから最終ログイン/活動日時を割り出し、6段階バッジを生成する関数
+  // 氏名を照合キーにして打刻レコードから最終ログイン/活動日時を割り出し、6段階バッジを生成する関数
   const renderLoginStatusBadge = (member: MemberInfo) => {
     const cleanMemberName = (member.name || "").replace(/[\s\u3000]/g, "");
 
-    // 氏名（名前）で打刻レコードを検索（同姓同名がない前提）
     const userRecords = attendanceRecords.filter((r: any) => {
       const recUserName = (r.userName || "").replace(/[\s\u3000]/g, "");
       if (recUserName && recUserName === cleanMemberName) return true;
@@ -190,7 +235,6 @@ export default function TabMembers({
       );
     }
 
-    // 最新の活動日付を取得
     const sorted = [...userRecords].sort((a, b) => {
       const timeA = `${a.workDate} ${a.startTime || "00:00"}`;
       const timeB = `${b.workDate} ${b.startTime || "00:00"}`;
@@ -241,7 +285,7 @@ export default function TabMembers({
   return (
     <div className="space-y-4 animate-fadeIn">
       
-      {/* 👑 【新設】最上部：チーム名追加・削除専用の独立管理エリア */}
+      {/* 1. 最上部：チーム名追加・削除専用の独立管理エリア */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 space-y-4">
         <div>
           <h3 className="text-sm font-extrabold text-gray-800 tracking-tight">🏢 所属チーム選択肢（マスタ）の追加・削除管理</h3>
@@ -260,7 +304,7 @@ export default function TabMembers({
           <button
             type="button"
             onClick={handleAddDeptHeader}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold px-4 py-2 rounded-xl text-xs shadow-sm transition-all flex items-center space-x-1"
+            className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold px-4 py-2 rounded-xl text-xs shadow-sm transition-all flex items-center space-x-1 cursor-pointer"
           >
             <span>➕ このチームを追加する</span>
           </button>
@@ -280,7 +324,7 @@ export default function TabMembers({
                   type="button"
                   onClick={() => handleDeleteDeptHeader(dept)}
                   title={`${dept}を削除する`}
-                  className="w-4 h-4 rounded-full bg-purple-200/60 hover:bg-rose-500 text-purple-800 hover:text-white flex items-center justify-center font-black text-[9px] transition-all"
+                  className="w-4 h-4 rounded-full bg-purple-200/60 hover:bg-rose-500 text-purple-800 hover:text-white flex items-center justify-center font-black text-[9px] transition-all cursor-pointer"
                 >
                   ✕
                 </button>
@@ -322,13 +366,12 @@ export default function TabMembers({
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden p-4">
         <table className="w-full text-left border-collapse">
           <thead>
-            <tr className="border-b border-gray-100 text-gray-400 font-bold bg-gray-50/50 text-[11px]">
+            <tr className="border-b border-gray-100 text-gray-400 font-bold bg-gray-50/50 text-[11px] h-10">
               <th className="py-2 pl-3">管理番号</th>
               <th className="py-2">氏名</th>
-              {/* 💡 見出しを「ログイン状況」に変更 */}
               <th className="py-2">ログイン状況</th>
               <th className="py-2">所属チーム（部署）</th>
-              <th className="py-2 w-24 text-center">操作</th>
+              <th className="py-2 w-28 text-center">操作</th>
               
               {myRole === "owner" && (
                 <th className="py-2 w-56 text-center bg-purple-50/40 border-l border-gray-100">👑 権限マスタ（オーナー限定）</th>
@@ -339,83 +382,86 @@ export default function TabMembers({
             {members.map((member) => {
               const isEditing = editingDeptEmail === member.email;
 
-              // 一時記憶がある場合はそれを使い、無い場合はFirebaseから届いた初期値を使う
               const currentRole = localRoles[member.email] || member.role;
               const currentIsOwnerProxy = localProxies[member.email] !== undefined ? localProxies[member.email] : !!member.isOwnerProxy;
 
               return (
-                <tr key={member.email} className="hover:bg-gray-50/30 transition-colors">
-                  <td className="py-2.5 pl-3 tabular-nums text-gray-400 font-mono">{member.managementNumber}</td>
-                  <td className="py-2.5 font-bold text-gray-900 text-sm">{member.name}</td>
+                <tr key={member.email} className="hover:bg-gray-50/30 transition-colors h-12">
+                  <td className="py-1 pl-3 tabular-nums text-gray-400 font-mono align-middle">{member.managementNumber}</td>
+                  <td className="py-1 font-bold text-gray-900 text-sm align-middle">{member.name}</td>
                   
-                  {/* 💡 不要なメールアドレス表記を削除し、ログイン状態バッジのみを表示 */}
-                  <td className="py-2.5 text-gray-500 font-medium">
+                  <td className="py-1 text-gray-500 font-medium align-middle">
                     {renderLoginStatusBadge(member)}
                   </td>
                   
-                  {/* 所属部署セル */}
-                  <td className="py-2.5">
+                  <td className="py-1 align-middle">
                     {isEditing ? (
-                      <select
-                        value={selectedDeptTmp}
-                        onChange={(e) => setSelectedDeptTmp(e.target.value)}
-                        className="w-56 bg-white border-2 border-emerald-400 px-2.5 py-1.5 rounded-lg text-gray-800 font-bold focus:outline-none cursor-pointer shadow-sm text-xs animate-fadeIn"
-                      >
-                        <option value="">-- 未設定（全体表示） --</option>
-                        {customDepts.map((dept) => (
-                          <option key={dept} value={dept}>{dept}</option>
-                        ))}
-                      </select>
-                    ) : (
-                      member.department ? (
-                        <span className="bg-purple-50 text-purple-700 border border-purple-100 px-2.5 py-0.5 rounded-full font-bold text-[11px]">
-                          {member.department}
-                        </span>
-                      ) : (
-                        <span className="text-gray-300 text-[11px] font-normal italic">未設定</span>
-                      )
-                    )}
-                  </td>
-
-                  {/* 操作ボタン */}
-                  <td className="py-2.5 text-center">
-                    {isEditing ? (
-                      <div className="flex items-center justify-center space-x-1.5">
-                        <button
-                          onClick={async () => {
-                            await handleSaveDepartment(member.email, selectedDeptTmp);
-                          }}
-                          className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold px-2.5 py-1 rounded-lg shadow-sm text-[11px] transition-all"
+                      <div className="h-8 flex items-center">
+                        <select
+                          value={selectedDeptTmp}
+                          onChange={(e) => setSelectedDeptTmp(e.target.value)}
+                          className="w-56 bg-white border-2 border-emerald-400 px-2 py-1 rounded-lg text-gray-800 font-bold focus:outline-none cursor-pointer shadow-sm text-xs h-8"
                         >
-                          保存
-                        </button>
-                        <button
-                          onClick={() => setEditingDeptEmail(null)}
-                          className="bg-gray-100 hover:bg-gray-200 text-gray-500 font-bold px-2 py-1 rounded-lg text-[11px] transition-all"
-                        >
-                          戻
-                        </button>
+                          <option value="">-- 未設定 --</option>
+                          {customDepts.map((dept) => (
+                            <option key={dept} value={dept}>{dept}</option>
+                          ))}
+                        </select>
                       </div>
                     ) : (
-                      <button
-                        onClick={() => {
-                          setEditingDeptEmail(member.email);
-                          setSelectedDeptTmp(member.department || "");
-                        }}
-                        className="border border-gray-200 bg-white hover:border-emerald-500 text-gray-500 hover:text-emerald-600 font-bold px-2.5 py-1 rounded-lg shadow-sm text-[11px] transition-all"
-                      >
-                        編集
-                      </button>
+                      <div className="h-8 flex items-center">
+                        {member.department && member.department !== "未設定" ? (
+                          <span className="bg-purple-50 text-purple-700 border border-purple-100 px-2.5 py-0.5 rounded-full font-bold text-[11px] inline-block">
+                            {member.department}
+                          </span>
+                        ) : (
+                          <span className="text-gray-300 text-[11px] font-normal italic inline-block">未設定</span>
+                        )}
+                      </div>
                     )}
                   </td>
 
-                  {/* 👑 権限管理エリア */}
+                  <td className="py-1 text-center align-middle">
+                    <div className="h-8 flex items-center justify-center">
+                      {isEditing ? (
+                        <div className="flex items-center space-x-1.5">
+                          <button
+                            onClick={async () => {
+                              const saveValue = selectedDeptTmp === "未設定" ? "" : selectedDeptTmp;
+                              await handleSaveDepartment(member.email, saveValue);
+                            }}
+                            className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold px-2.5 py-1 rounded-lg shadow-sm text-[11px] transition-all cursor-pointer h-7 flex items-center"
+                          >
+                            保存
+                          </button>
+                          <button
+                            onClick={() => setEditingDeptEmail(null)}
+                            className="bg-gray-100 hover:bg-gray-200 text-gray-500 font-bold px-2 py-1 rounded-lg text-[11px] transition-all cursor-pointer h-7 flex items-center"
+                          >
+                            戻
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => {
+                            setEditingDeptEmail(member.email);
+                            const currentDept = member.department === "未設定" ? "" : (member.department || "");
+                            setSelectedDeptTmp(currentDept);
+                          }}
+                          className="border border-gray-200 bg-white hover:border-emerald-500 text-gray-500 hover:text-emerald-600 font-bold px-2.5 py-1 rounded-lg shadow-sm text-[11px] transition-all cursor-pointer h-7 flex items-center"
+                        >
+                          編集
+                        </button>
+                      )}
+                    </div>
+                  </td>
+
                   {myRole === "owner" && (
-                    <td className="py-2.5 text-center bg-purple-50/10 border-l border-gray-100">
-                      <div className="flex items-center justify-start pl-4 space-x-3">
+                    <td className="py-1 text-center bg-purple-50/10 border-l border-gray-100 align-middle">
+                      <div className="flex items-center justify-start pl-4 space-x-3 h-8">
                         <button
                           onClick={() => toggleAdminRole(member)}
-                          className={`px-2 py-0.5 w-20 rounded font-black text-[10px] shadow-sm transition-all border ${
+                          className={`px-2 py-0.5 w-20 rounded font-black text-[10px] shadow-sm transition-all border cursor-pointer ${
                             currentRole === "admin"
                               ? "bg-purple-600 text-white border-purple-700 hover:bg-purple-700"
                               : "bg-gray-50 text-gray-400 border-gray-200 hover:border-purple-500 hover:text-purple-600"
@@ -425,7 +471,7 @@ export default function TabMembers({
                         </button>
 
                         {currentRole === "admin" ? (
-                          <label className="flex items-center space-x-1 cursor-pointer text-purple-700 font-bold text-[11px] animate-fadeIn">
+                          <label className="flex items-center space-x-1 cursor-pointer text-purple-700 font-bold text-[11px] select-none">
                             <input
                               type="checkbox"
                               checked={currentIsOwnerProxy}
@@ -448,13 +494,13 @@ export default function TabMembers({
         </table>
       </div>
 
-      {/* 👑 カスタム確認モーダル */}
+      {/* カスタム確認モーダル */}
       {modalConfig.isOpen && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[999] animate-fadeIn">
           <div className="bg-white rounded-3xl p-6 max-w-sm w-full mx-4 shadow-2xl border border-gray-100 text-center space-y-5 animate-scaleUp">
             
             <div className="w-12 h-12 mx-auto rounded-full bg-purple-50 text-purple-600 flex items-center justify-center">
-              <svg xmlns="http://www.w3.org/2000/xl" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-6 h-6">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-6 h-6">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
@@ -474,7 +520,7 @@ export default function TabMembers({
                 onClick={() => {
                   setModalConfig(prev => ({ ...prev, isOpen: false }));
                 }} 
-                className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-600 text-xs font-bold py-2.5 rounded-xl transition-all"
+                className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-600 text-xs font-bold py-2.5 rounded-xl transition-all cursor-pointer"
               >
                 キャンセル
               </button>
@@ -483,7 +529,7 @@ export default function TabMembers({
                   setModalConfig(prev => ({ ...prev, isOpen: false }));
                   await modalConfig.onConfirm();
                 }} 
-                className={`flex-1 text-white text-xs font-black py-2.5 rounded-xl shadow-sm transition-all ${
+                className={`flex-1 text-white text-xs font-black py-2.5 rounded-xl shadow-sm transition-all cursor-pointer ${
                   modalConfig.isDanger 
                     ? "bg-rose-500 hover:bg-rose-600 shadow-rose-100" 
                     : "bg-purple-600 hover:bg-purple-700 shadow-purple-100"

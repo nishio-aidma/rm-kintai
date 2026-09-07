@@ -336,7 +336,6 @@ export const attendanceRepository = {
     }
   },
 
-  // 👑 【改修】CSVインポート時に固定枠(fixed_members)側も時給を同時同期
   saveImportedMembers: async (membersList: Omit<MemberInfo, "department" | "loginEmail">[]) => {
     try {
       const batch = writeBatch(db);
@@ -383,7 +382,6 @@ export const attendanceRepository = {
           currentLeadingTeams = d.leadingTeams || [];
         }
 
-        // 固定枠が存在する場合は時給も同期更新
         if (fixedSnap.exists()) {
           batch.set(fixedRef, {
             hourlyRate: member.hourlyRate,
@@ -419,7 +417,6 @@ export const attendanceRepository = {
     }
   },
 
-  // 👑 【改修】固定枠の時給が未設定(0)の場合、CSVからの取り込み時給を優先保持するロジックに変更
   getAllMembers: async (): Promise<MemberInfo[]> => {
     try {
       const [membersSnapshot, fixedSnapshot] = await Promise.all([
@@ -464,7 +461,6 @@ export const attendanceRepository = {
         const existing = allMembersMap.get(cleanEmail);
         const fixedName = data.name || `${data.lastName || ""} ${data.firstName || ""}`.trim() || existing?.name || cleanEmail.split("@")[0];
 
-        // 固定枠の時給が0より大きい場合はそれを採用、0以下の場合はCSVインポート時の時給(existing.hourlyRate)を優先保持
         const fixedRate = Number(data.hourlyRate) || 0;
         const finalHourlyRate = fixedRate > 0 ? fixedRate : (existing?.hourlyRate || 0);
 
@@ -633,7 +629,6 @@ export const attendanceRepository = {
     }
   },
 
-  // 👑 【改修】固定枠の時給が未設定(0)の場合もインポート時給を優先して取得
   getMemberByEmail: async (loginEmail: string): Promise<MemberInfo | null> => {
     try {
       const cleanEmail = loginEmail.trim().toLowerCase();
@@ -841,6 +836,35 @@ export const attendanceRepository = {
       await setDoc(docRef, { 
         footerMessage: message,
         updatedAt: serverTimestamp() 
+      }, { merge: true });
+      return true;
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  // 👑 【新設】データベース（Firestore）からチームリストを取得する関数
+  getCustomDepartments: async (): Promise<string[]> => {
+    try {
+      const docRef = doc(db, "settings", "departments");
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        return snap.data().list || [];
+      }
+      return [];
+    } catch (error) {
+      console.error("チームマスタ取得エラー:", error);
+      return [];
+    }
+  },
+
+  // 👑 【新設】データベース（Firestore）へチームリストを保存する関数
+  saveCustomDepartments: async (departments: string[]) => {
+    try {
+      const docRef = doc(db, "settings", "departments");
+      await setDoc(docRef, {
+        list: departments,
+        updatedAt: serverTimestamp()
       }, { merge: true });
       return true;
     } catch (error) {

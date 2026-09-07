@@ -4,7 +4,8 @@ import { db } from "@/lib/firebase";
 
 // MEMBERS APIのレスポンス用型定義
 interface MembersApiUser {
-  id: string | number;
+  id?: string | number;
+  account_id?: string | number;
   name: string;
 }
 
@@ -16,17 +17,18 @@ async function sendMembersMessage(
   toIds: string[]
 ) {
   const postUrl = `https://api.mem-bers.jp/web-api/rooms/${roomId}/messages`;
-  // 改行コードをHTML用の<br>タグに変換
-  const formattedBody = body.replace(/\r\n|\r|\n/g, "<br>");
-
-  const payload: Record<string, string> = {
-    body: formattedBody,
-  };
-
-  // 複数人のIDをカンマ区切りで渡すと、MEMBERSが自動で全員分の青メンションを付けてくれる
-  if (toIds.length > 0) {
-    payload.to_id = toIds.join(",");
+  
+  // 💡 メンションは本文の先頭に [To:xxxxx] として直接文字でくっつける
+  let finalBody = body;
+  if (toIds && toIds.length > 0) {
+    const mentionText = toIds.map(id => `[To:${id}]`).join(" ");
+    finalBody = `${mentionText}\n${body}`;
   }
+
+  // 💡 MEMBERS(Chatwork系)は改行をそのまま(\n)送るのが正解のため、<br>変換を削除
+  const payload: Record<string, string> = {
+    body: finalBody,
+  };
 
   const res = await fetch(postUrl, {
     method: "POST",
@@ -60,11 +62,16 @@ async function getRoomMembers(roomId: string, token: string): Promise<Record<str
 
     if (res.ok) {
       const json = await res.json();
-      const members: MembersApiUser[] = json.member || [];
+      // 💡 MEMBERSはデータが直接配列で返ってくるため、正しくリストを受け取るように変更
+      const members: MembersApiUser[] = Array.isArray(json) ? json : (json.member || []);
+      
       members.forEach((m) => {
         const cleanName = (m.name || "").replace(/[\s\u3000]/g, "");
-        if (cleanName) {
-          memberMap[cleanName] = String(m.id);
+        // 💡 IDの項目名が account_id である仕様に対応
+        const accountId = m.account_id || m.id;
+        
+        if (cleanName && accountId) {
+          memberMap[cleanName] = String(accountId);
         }
       });
     }
@@ -128,24 +135,24 @@ export async function POST(request: Request) {
         // チャットルームのメンバー一覧を取得
         const roomMembers = await getRoomMembers(roomId, token);
         const toIds: string[] = [];
-        const notFoundNames: string[] = []; // 💡 マッチしなかった人の名前を保持
+        const notFoundNames: string[] = [];
 
         memberNames.forEach((name) => {
           const cleanAppName = name.replace(/[\s\u3000]/g, "");
           
           // MEMBERS側の名前にアプリ側の名前が含まれているか部分一致で検索
-          const matchedKey = Object.keys(roomMembers).find(memName => memName.includes(cleanAppName));
+          const matchedKey = Object.keys(roomMembers).find(memName => 
+            memName === cleanAppName || memName.includes(cleanAppName) || cleanAppName.includes(memName)
+          );
           
           if (matchedKey) {
-            // 見つかったら内部IDを追加するだけ（MEMBERSが自動で青文字にしてくれる）
             toIds.push(roomMembers[matchedKey]);
           } else {
-            // 見つからなかった人を記録
             notFoundNames.push(name);
           }
         });
 
-        // 💡 もしMEMBERSの部屋に見つからなかった人がいた場合のみ、本文に警告文を足す
+        // もしMEMBERSの部屋に見つからなかった人がいた場合のみ、本文に警告文を足す
         let finalMessage = baseMessage;
         if (notFoundNames.length > 0) {
            finalMessage = `⚠️ [システム通知] MEMBERS名簿に以下のメンバーが見つからなかったため、メンションを付与できませんでした。\n対象者: ${notFoundNames.join(", ")}\n\n${baseMessage}`;

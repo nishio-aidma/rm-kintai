@@ -149,7 +149,6 @@ function DashboardContent() {
 
           const now = new Date();
           const todayStr = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, '0') + "-" + String(now.getDate()).padStart(2, '0');
-          // 👑 当月1日の日付文字列を作成（例: "2026-08-01"）
           const firstDayOfCurrentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
 
           const [memberMeta, settings, latest] = await Promise.all([
@@ -196,7 +195,6 @@ function DashboardContent() {
 
           querySnapshot.forEach((docSnap) => {
             const data = docSnap.data();
-            // 👑 修正: 「当月1日以降」かつ「今日より過去」の未終了データのみを抽出する
             if (data.workDate >= firstDayOfCurrentMonthStr && data.workDate < todayStr) {
               hasOldUnfinished = true;
               missingList.push({
@@ -221,7 +219,6 @@ function DashboardContent() {
           let count = 0;
           unverifiedSnap.forEach((docSnap) => {
             const data = docSnap.data();
-            // 👑 修正: 「当月1日以降」かつ「今日より過去」かつ「終了時間入力済み」の記録のみをカウント
             if (data.workDate >= firstDayOfCurrentMonthStr && data.workDate < todayStr && data.endTime !== "") {
               count++;
             }
@@ -347,6 +344,18 @@ function DashboardContent() {
         actualStartTime: actualTimeStr,
       });
 
+      // 👑 【新設】業務開始のリアルタイム通知APIを呼び出す
+      fetch("/api/notify/attendance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "start",
+          userName: userName,
+          workDate: todayStr,
+          time: selectedTimeStr,
+        }),
+      }).catch((err) => console.error("打刻通知API通信エラー:", err));
+
       setCurrentStampId(stampId);
       setCurrentStartTimeStr(selectedTimeStr);
       setWorkState("working");
@@ -409,6 +418,20 @@ function DashboardContent() {
         actualTimeStr
       );
 
+      const todayStr = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, '0') + "-" + String(now.getDate()).padStart(2, '0');
+
+      // 👑 【新設】業務終了のリアルタイム通知APIを呼び出す
+      fetch("/api/notify/attendance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "end",
+          userName: userName,
+          workDate: todayStr,
+          time: selectedEndTimeStr,
+        }),
+      }).catch((err) => console.error("打刻通知API通信エラー:", err));
+
       setWorkState("not_started");
       setCurrentStampId(null);
       setCurrentStartTimeStr("");
@@ -439,6 +462,18 @@ function DashboardContent() {
         selectedEndTimeStr
       );
 
+      // 👑 【新設】過去データの終了打刻補正時のリアルタイム通知API呼び出し
+      fetch("/api/notify/attendance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "end",
+          userName: userName,
+          workDate: targetRecord.workDate,
+          time: selectedEndTimeStr,
+        }),
+      }).catch((err) => console.error("打刻通知API通信エラー:", err));
+
       const remaining = missingEndRecords.filter(r => r.id !== targetRecord.id);
       setMissingEndRecords(remaining);
 
@@ -465,7 +500,7 @@ function DashboardContent() {
         fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif'
       }}
     >
-      {/* 👑 最前面エラー・ステータス通知バナー */}
+      {/* 最前面エラー・ステータス通知バナー */}
       {statusMessage && (
         <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] w-[90%] max-w-md shadow-2xl transition-all animate-fadeIn">
           <div className="bg-gray-900/95 backdrop-blur-md text-white border border-gray-700 px-6 py-4 rounded-2xl text-xs sm:text-sm font-bold text-center tracking-tight leading-relaxed shadow-emerald-500/10">

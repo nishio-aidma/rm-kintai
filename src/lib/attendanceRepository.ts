@@ -44,11 +44,12 @@ export interface NotificationConfig {
   message: string;
 }
 
-// 👑 【新設】打刻リアルタイム通知用の設定型
+// 👑 【改修】リアルタイム打刻通知（業務開始・業務終了で別々のメッセージを保持）
 export interface RealtimeAttendanceConfig {
   enabled: boolean;
   roomId: string;
-  message: string;
+  startMessage: string; // 業務開始用テンプレート
+  endMessage: string;   // 業務終了用テンプレート
 }
 
 export interface NotificationsSettings {
@@ -57,7 +58,7 @@ export interface NotificationsSettings {
   monthEndSubmissionReminder: NotificationConfig; 
   missingEndWorkReminder: NotificationConfig;
   manualReminder?: NotificationConfig;
-  realtimeAttendanceNotice?: RealtimeAttendanceConfig; // 👑 【新設】リアルタイム打刻通知設定
+  realtimeAttendanceNotice?: RealtimeAttendanceConfig; 
   teamRoomIds: { [teamName: string]: string };
   apiToken?: string; 
 }
@@ -773,11 +774,17 @@ export const attendanceRepository = {
             time: "",
             message: "【ダコック個別催促】稼働記録が【未提出】状態です。内容を確認の上、システムより提出ボタンの押下をお願いいたします。\n[自分の記録URL]",
           },
-          // 👑 【新設】リアルタイム打刻通知用の初期設定読み込み
-          realtimeAttendanceNotice: data.realtimeAttendanceNotice || {
+          // 👑 【改修】2パターンのテンプレートを保存・読み込みできるように修正
+          realtimeAttendanceNotice: data.realtimeAttendanceNotice ? {
+            enabled: data.realtimeAttendanceNotice.enabled ?? false,
+            roomId: data.realtimeAttendanceNotice.roomId || "",
+            startMessage: data.realtimeAttendanceNotice.startMessage || "【業務開始報告】\n■日付：[日付]\n■時間：[打刻時刻]\n■連絡事項：",
+            endMessage: data.realtimeAttendanceNotice.endMessage || "【業務終了報告】\n■日付：[日付]\n■時間：[打刻時刻]\n■連絡事項：",
+          } : {
             enabled: false,
             roomId: "",
-            message: "【打刻通知】[氏名] さんが [打刻種別] しました。\n時刻：[打刻時刻]",
+            startMessage: "【業務開始報告】\n■日付：[日付]\n■時間：[打刻時刻]\n■連絡事項：",
+            endMessage: "【業務終了報告】\n■日付：[日付]\n■時間：[打刻時刻]\n■連絡事項：",
           },
           teamRoomIds: data.teamRoomIds || {},
           apiToken: data.apiToken || "",
@@ -810,11 +817,12 @@ export const attendanceRepository = {
           time: "",
           message: "【ダコック個別催促】稼働記録が【未提出】状態です。内容を確認の上、システムより提出ボタンの押下をお願いいたします。\n[自分の記録URL]",
         },
-        // 👑 【新設】データが存在しない場合の完全新規用の初期値
+        // 👑 【改修】西尾さんご指定の2パターンの初期テンプレートを標準装備
         realtimeAttendanceNotice: {
           enabled: false,
           roomId: "",
-          message: "【打刻通知】[氏名] さんが [打刻種別] しました。\n時刻：[打刻時刻]",
+          startMessage: "【業務開始報告】\n■日付：[日付]\n■時間：[打刻時刻]\n■連絡事項：",
+          endMessage: "【業務終了報告】\n■日付：[日付]\n■時間：[打刻時刻]\n■連絡事項：",
         },
         teamRoomIds: {},
         apiToken: "",

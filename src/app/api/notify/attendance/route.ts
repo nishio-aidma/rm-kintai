@@ -18,7 +18,6 @@ async function sendMembersMessage(
 ) {
   const postUrl = `https://api.mem-bers.jp/web-api/rooms/${roomId}/messages`;
   
-  // 改行をそのまま送信する
   const payload: Record<string, string> = {
     body: body,
   };
@@ -82,10 +81,6 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const { type, userName, workDate, time } = body;
-    // type: "start" または "end"
-    // userName: "山田 太郎"
-    // workDate: "2026-09-07"
-    // time: "09:30"
 
     // 1. 通知設定の取得
     const settingsRef = doc(db, "settings", "notifications");
@@ -99,32 +94,38 @@ export async function POST(request: Request) {
     const realtimeConfig = settings.realtimeAttendanceNotice;
     const token = settings.apiToken || "";
 
-    // 機能がOFF、またはルームIDやトークンがない場合は何もせずに終了
+    // 機能がOFF、またはルームIDやトークンがない場合は送信をスキップ
     if (!realtimeConfig || !realtimeConfig.enabled || !realtimeConfig.roomId || !token) {
       return NextResponse.json({ success: true, message: "通知OFFまたは設定不足のためスキップ" });
     }
 
     const roomId = realtimeConfig.roomId;
 
-    // 2. 日付のフォーマット変換 ("2026-09-07" -> "09/07")
+    // 2. 日付のフォーマット変換 ("2026-09-08" -> "09/08")
     const dateParts = workDate.split("-");
     const formattedDate = dateParts.length === 3 ? `${dateParts[1]}/${dateParts[2]}` : workDate;
 
-    // 3. テンプレートに従ってメッセージを作成
-    let messageBody = "";
+    // 3. 👑 画面で設定されたテンプレート文章を取得し、日付や時間を自動埋め込み
+    let template = "";
     if (type === "start") {
-      messageBody = `【業務開始報告】\n■日付：${formattedDate}\n■時間：${time}\n■連絡事項：`;
+      template = realtimeConfig.startMessage || "【業務開始報告】\n■日付：[日付]\n■時間：[打刻時刻]\n■連絡事項：";
     } else if (type === "end") {
-      messageBody = `【業務終了報告】\n■日付：${formattedDate}\n■時間：${time}\n■連絡事項：`;
+      template = realtimeConfig.endMessage || "【業務終了報告】\n■日付：[日付]\n■時間：[打刻時刻]\n■連絡事項：";
     } else {
       return NextResponse.json({ success: false, message: "不正な打刻タイプです" });
     }
 
-    // 4. グループからメンバーを取得し、送信者のメンバーIDを特定する
+    // [日付], [打刻時刻], [氏名] のタグを実際データに変換
+    const messageBody = template
+      .replace(/\[日付\]/g, formattedDate)
+      .replace(/\[打刻時刻\]/g, time)
+      .replace(/\[氏名\]/g, userName || "");
+
+    // 4. グループからメンバーを取得し、送信者のメンバーID（発言者）を特定する
     const roomMembers = await getRoomMembers(roomId, token);
     const cleanAppName = (userName || "").replace(/[\s\u3000]/g, "");
     
-    // 名前の部分一致で探す
+    // 名前の部分一致で対象者を検索
     const matchedKey = Object.keys(roomMembers).find(memName => 
       memName.includes(cleanAppName) || cleanAppName.includes(memName)
     );

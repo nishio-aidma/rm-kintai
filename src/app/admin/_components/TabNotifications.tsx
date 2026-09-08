@@ -43,11 +43,12 @@ export default function TabNotifications({
       time: "",
       message: "【ダコック個別催促】稼働記録が【未提出】状態です。内容を確認の上、システムより提出ボタンの押下をお願いいたします。\n[自分の記録URL]",
     },
-    // 👑 リアルタイム打刻通知用の初期値
+    // リアルタイム打刻通知（開始/終了の2パターン保持）
     realtimeAttendanceNotice: {
       enabled: false,
       roomId: "",
-      message: "【打刻通知】[氏名] さんが [打刻種別] しました。\n時刻：[打刻時刻]",
+      startMessage: "【業務開始報告】\n■日付：[日付]\n■時間：[打刻時刻]\n■連絡事項：",
+      endMessage: "【業務終了報告】\n■日付：[日付]\n■時間：[打刻時刻]\n■連絡事項：",
     },
     teamRoomIds: {},
     apiToken: "",
@@ -61,11 +62,16 @@ export default function TabNotifications({
           setSettings({
             ...data,
             apiToken: data.apiToken || "",
-            // 👑 データベースの既存データがない場合のフォールバック補完
-            realtimeAttendanceNotice: data.realtimeAttendanceNotice || {
+            realtimeAttendanceNotice: data.realtimeAttendanceNotice ? {
+              enabled: data.realtimeAttendanceNotice.enabled ?? false,
+              roomId: data.realtimeAttendanceNotice.roomId || "",
+              startMessage: data.realtimeAttendanceNotice.startMessage || "【業務開始報告】\n■日付：[日付]\n■時間：[打刻時刻]\n■連絡事項：",
+              endMessage: data.realtimeAttendanceNotice.endMessage || "【業務終了報告】\n■日付：[日付]\n■時間：[打刻時刻]\n■連絡事項：",
+            } : {
               enabled: false,
               roomId: "",
-              message: "【打刻通知】[氏名] さんが [打刻種別] しました。\n時刻：[打刻時刻]",
+              startMessage: "【業務開始報告】\n■日付：[日付]\n■時間：[打刻時刻]\n■連絡事項：",
+              endMessage: "【業務終了報告】\n■日付：[日付]\n■時間：[打刻時刻]\n■連絡事項：",
             },
           });
         }
@@ -102,13 +108,24 @@ export default function TabNotifications({
     }));
   };
 
-  // 👑 打刻通知用のタグ挿入ヘルパー
-  const handleInsertRealtimeTag = (tag: string) => {
+  // 業務開始メッセージへのタグ挿入
+  const handleInsertRealtimeStartTag = (tag: string) => {
     setSettings((prev) => ({
       ...prev,
       realtimeAttendanceNotice: {
         ...prev.realtimeAttendanceNotice!,
-        message: (prev.realtimeAttendanceNotice?.message || "") + ` ${tag}`,
+        startMessage: (prev.realtimeAttendanceNotice?.startMessage || "") + `${tag}`,
+      },
+    }));
+  };
+
+  // 業務終了メッセージへのタグ挿入
+  const handleInsertRealtimeEndTag = (tag: string) => {
+    setSettings((prev) => ({
+      ...prev,
+      realtimeAttendanceNotice: {
+        ...prev.realtimeAttendanceNotice!,
+        endMessage: (prev.realtimeAttendanceNotice?.endMessage || "") + `${tag}`,
       },
     }));
   };
@@ -157,8 +174,8 @@ export default function TabNotifications({
         </p>
       </div>
 
-      {/* 👑 ⑦ リアルタイム打刻通知設定（新設セクション） */}
-      <div className="bg-white p-6 rounded-2xl border-2 border-emerald-500/30 shadow-md space-y-4 relative overflow-hidden">
+      {/* ⑦ リアルタイム打刻通知設定（改修セクション） */}
+      <div className="bg-white p-6 rounded-2xl border-2 border-emerald-500/30 shadow-md space-y-5 relative overflow-hidden">
         <div className="absolute top-0 left-0 w-2 h-full bg-emerald-500"></div>
         <div className="flex items-center justify-between border-b border-gray-100 pb-3 pl-2">
           <div>
@@ -167,7 +184,7 @@ export default function TabNotifications({
               <h4 className="text-sm font-extrabold text-gray-800">リアルタイム打刻通知機能設定</h4>
               <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full">新機能</span>
             </div>
-            <p className="text-[11px] text-gray-400 mt-0.5">メンバーが打刻（業務開始・終了）した瞬間に共通チャットへ即時通知します</p>
+            <p className="text-[11px] text-gray-400 mt-0.5">メンバーが打刻（業務開始・終了）した瞬間に共通チャットへ即時通知します（送信元は打刻本人になります）</p>
           </div>
           
           {/* ON/OFF 切り替えトグル */}
@@ -199,7 +216,7 @@ export default function TabNotifications({
           </div>
         </div>
 
-        <div className="space-y-4 pl-2 font-medium">
+        <div className="space-y-5 pl-2 font-medium">
           {/* 共通ルームID設定 */}
           <div className="space-y-1.5">
             <label className="font-bold text-gray-700 block text-xs">通知先グループチャット ルームID（6桁）</label>
@@ -225,48 +242,83 @@ export default function TabNotifications({
             </div>
           </div>
 
-          {/* 通知本文設定 */}
-          <div className="space-y-2">
+          {/* 業務開始メッセージ設定 */}
+          <div className="space-y-2 bg-emerald-50/30 p-4 rounded-xl border border-emerald-100">
             <div className="flex justify-between items-center">
-              <label className="font-bold text-gray-700">通知メッセージ本文テンプレート</label>
+              <label className="font-extrabold text-emerald-800 text-xs flex items-center space-x-1">
+                <span>▶ 業務開始時（出勤）の通知テンプレート</span>
+              </label>
               <div className="flex space-x-1">
                 <button
                   type="button"
-                  onClick={() => handleInsertRealtimeTag("[氏名]")}
-                  className="bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold px-2 py-0.5 rounded transition-all text-[10px] cursor-pointer"
+                  onClick={() => handleInsertRealtimeStartTag("[日付]")}
+                  className="bg-white hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-bold px-2 py-0.5 rounded transition-all text-[10px] cursor-pointer"
                 >
-                  ＋[氏名]
+                  ＋[日付]
                 </button>
                 <button
                   type="button"
-                  onClick={() => handleInsertRealtimeTag("[打刻種別]")}
-                  className="bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold px-2 py-0.5 rounded transition-all text-[10px] cursor-pointer"
-                >
-                  ＋[打刻種別]
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleInsertRealtimeTag("[打刻時刻]")}
-                  className="bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold px-2 py-0.5 rounded transition-all text-[10px] cursor-pointer"
+                  onClick={() => handleInsertRealtimeStartTag("[打刻時刻]")}
+                  className="bg-white hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-bold px-2 py-0.5 rounded transition-all text-[10px] cursor-pointer"
                 >
                   ＋[打刻時刻]
                 </button>
               </div>
             </div>
             <textarea
-              rows={3}
-              value={settings.realtimeAttendanceNotice?.message || ""}
+              rows={5}
+              value={settings.realtimeAttendanceNotice?.startMessage || ""}
               onChange={(e) =>
                 setSettings((prev) => ({
                   ...prev,
                   realtimeAttendanceNotice: {
                     ...prev.realtimeAttendanceNotice!,
-                    message: e.target.value,
+                    startMessage: e.target.value,
                   },
                 }))
               }
-              className="w-full border border-gray-200 rounded-xl p-3 text-xs bg-gray-50/50 focus:bg-white focus:outline-none leading-relaxed font-sans"
-              placeholder="【打刻通知】[氏名] さんが [打刻種別] しました。\n時刻：[打刻時刻]"
+              className="w-full border border-gray-200 rounded-xl p-3 text-xs bg-white focus:outline-none leading-relaxed font-mono"
+              placeholder="【業務開始報告】\n■日付：[日付]\n■時間：[打刻時刻]\n■連絡事項："
+            />
+          </div>
+
+          {/* 業務終了メッセージ設定 */}
+          <div className="space-y-2 bg-gray-50 p-4 rounded-xl border border-gray-200">
+            <div className="flex justify-between items-center">
+              <label className="font-extrabold text-gray-800 text-xs flex items-center space-x-1">
+                <span>■ 業務終了時（退勤）の通知テンプレート</span>
+              </label>
+              <div className="flex space-x-1">
+                <button
+                  type="button"
+                  onClick={() => handleInsertRealtimeEndTag("[日付]")}
+                  className="bg-white hover:bg-gray-200 text-gray-700 border border-gray-200 font-bold px-2 py-0.5 rounded transition-all text-[10px] cursor-pointer"
+                >
+                  ＋[日付]
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleInsertRealtimeEndTag("[打刻時刻]")}
+                  className="bg-white hover:bg-gray-200 text-gray-700 border border-gray-200 font-bold px-2 py-0.5 rounded transition-all text-[10px] cursor-pointer"
+                >
+                  ＋[打刻時刻]
+                </button>
+              </div>
+            </div>
+            <textarea
+              rows={5}
+              value={settings.realtimeAttendanceNotice?.endMessage || ""}
+              onChange={(e) =>
+                setSettings((prev) => ({
+                  ...prev,
+                  realtimeAttendanceNotice: {
+                    ...prev.realtimeAttendanceNotice!,
+                    endMessage: e.target.value,
+                  },
+                }))
+              }
+              className="w-full border border-gray-200 rounded-xl p-3 text-xs bg-white focus:outline-none leading-relaxed font-mono"
+              placeholder="【業務終了報告】\n■日付：[日付]\n■時間：[打刻時刻]\n■連絡事項："
             />
           </div>
         </div>

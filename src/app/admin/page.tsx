@@ -336,7 +336,10 @@ export default function AdminPage() {
     const idxFirstNameKana = headers.findIndex(h => h === "名前カナ" || h.includes("名前カナ"));
     const idxEmail = headers.findIndex(h => h === "メール" || h.includes("メール"));
     
-    const idxRate = 27;
+    let idxRate = headers.findIndex(h => h.includes("時給") || h.includes("単価") || h.includes("報酬"));
+    if (idxRate === -1) {
+      idxRate = 27;
+    }
 
     const idxMedia = headers.findIndex(h => h === "求人媒体" || h.includes("求人媒体"));
     const idxCreatedAt = headers.findIndex(h => h === "作成日時" || h.includes("作成日時"));
@@ -357,6 +360,7 @@ export default function AdminPage() {
       if (!email || !email.includes("@")) continue;
 
       const rawRateStr = idxRate < columns.length ? columns[idxRate] : "0";
+      // 👑 【修正】全角数字範囲の正規表現を [０-９] へ正しく変更
       const normalizedStr = rawRateStr.replace(/[０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xfee0));
       const cleanRateNum = Number(normalizedStr.replace(/[^0-9.]/g, "")) || 0;
 

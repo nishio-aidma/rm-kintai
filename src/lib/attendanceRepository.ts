@@ -44,7 +44,7 @@ export interface NotificationConfig {
   message: string;
 }
 
-// 👑 【改修】リアルタイム打刻通知（業務開始・業務終了で別々のメッセージを保持）
+// 👑 リアルタイム打刻通知（業務開始・業務終了で別々のメッセージを保持）
 export interface RealtimeAttendanceConfig {
   enabled: boolean;
   roomId: string;
@@ -345,6 +345,7 @@ export const attendanceRepository = {
     }
   },
 
+  // 👑 【根本修正】CSVインポート時の時給上書きバグを完全に修正
   saveImportedMembers: async (membersList: Omit<MemberInfo, "department" | "loginEmail">[]) => {
     try {
       const batch = writeBatch(db);
@@ -391,6 +392,7 @@ export const attendanceRepository = {
           currentLeadingTeams = d.leadingTeams || [];
         }
 
+        // 💡 fixed_members 側が存在する場合も、CSVから読み込んだ最新の時給（member.hourlyRate）で確実に更新する！
         if (fixedSnap.exists()) {
           batch.set(fixedRef, {
             hourlyRate: member.hourlyRate,
@@ -398,6 +400,7 @@ export const attendanceRepository = {
           }, { merge: true });
         }
         
+        // 💡 members 側にも最新時給（member.hourlyRate）を保存！
         batch.set(memberRef, {
           id: member.id,
           managementNumber: member.managementNumber,
@@ -426,6 +429,7 @@ export const attendanceRepository = {
     }
   },
 
+  // 👑 【根本修正】全メンバー取得時にCSV由来の最新時給を正しく反映する
   getAllMembers: async (): Promise<MemberInfo[]> => {
     try {
       const [membersSnapshot, fixedSnapshot] = await Promise.all([
@@ -470,8 +474,9 @@ export const attendanceRepository = {
         const existing = allMembersMap.get(cleanEmail);
         const fixedName = data.name || `${data.lastName || ""} ${data.firstName || ""}`.trim() || existing?.name || cleanEmail.split("@")[0];
 
+        // 💡 fixed_members 側の時給が 0 の場合は、members 側のCSVインポート時給（existing.hourlyRate）を最優先にする！
         const fixedRate = Number(data.hourlyRate) || 0;
-        const finalHourlyRate = fixedRate > 0 ? fixedRate : (existing?.hourlyRate || 0);
+        const finalHourlyRate = existing?.hourlyRate && existing.hourlyRate > 0 ? existing.hourlyRate : fixedRate;
 
         allMembersMap.set(cleanEmail, {
           id: data.id || existing?.id || "",
@@ -638,6 +643,7 @@ export const attendanceRepository = {
     }
   },
 
+  // 👑 【根本修正】個別取得時もCSV由来の最新時給を優先して返す
   getMemberByEmail: async (loginEmail: string): Promise<MemberInfo | null> => {
     try {
       const cleanEmail = loginEmail.trim().toLowerCase();
@@ -657,7 +663,8 @@ export const attendanceRepository = {
       if (fixedSnap.exists()) {
         const docData = fixedSnap.data() as any;
         const fixedRate = Number(docData.hourlyRate) || 0;
-        const finalRate = fixedRate > 0 ? fixedRate : memberRate;
+        // 💡 CSVで取り込んだ時給（memberRate）があればそちらを最優先！
+        const finalRate = memberRate > 0 ? memberRate : fixedRate;
 
         return {
           id: docData.id || memberData?.id || "",
@@ -774,7 +781,6 @@ export const attendanceRepository = {
             time: "",
             message: "【ダコック個別催促】稼働記録が【未提出】状態です。内容を確認の上、システムより提出ボタンの押下をお願いいたします。\n[自分の記録URL]",
           },
-          // 👑 【改修】2パターンのテンプレートを保存・読み込みできるように修正
           realtimeAttendanceNotice: data.realtimeAttendanceNotice ? {
             enabled: data.realtimeAttendanceNotice.enabled ?? false,
             roomId: data.realtimeAttendanceNotice.roomId || "",
@@ -817,7 +823,6 @@ export const attendanceRepository = {
           time: "",
           message: "【ダコック個別催促】稼働記録が【未提出】状態です。内容を確認の上、システムより提出ボタンの押下をお願いいたします。\n[自分の記録URL]",
         },
-        // 👑 【改修】西尾さんご指定の2パターンの初期テンプレートを標準装備
         realtimeAttendanceNotice: {
           enabled: false,
           roomId: "",
